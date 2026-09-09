@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+from itertools import count
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -23,10 +24,38 @@ from responses_api_agents.terminus_2_sandboxed_agent import app as app_module
 from responses_api_agents.terminus_2_sandboxed_agent.app import (
     NeMoGymLLM,
     NeMoGymSandboxEnvironment,
+    NeMoGymTerminus2,
     Terminus2Agent,
     Terminus2AgentConfig,
     _instruction,
 )
+
+
+def _terminus_config(**overrides) -> Terminus2AgentConfig:
+    return Terminus2AgentConfig(
+        **{
+            "host": "0.0.0.0",
+            "port": 8080,
+            "entrypoint": "app.py",
+            "name": "terminus_2_1_agent",
+            "resources_server": ResourcesServerRef(type="resources_servers", name="swebench_resources_server"),
+            "model_server": ModelServerRef(type="responses_api_models", name="policy_model"),
+            "max_turns": 100,
+            "enable_summarize": True,
+            "proactive_summarization_threshold": 8000,
+            "tmux_pane_width": 160,
+            "tmux_pane_height": 40,
+            "dump_trajectory": False,
+            "debug": False,
+            "model_context_limit": 32_000,
+            "model_output_limit": 4_000,
+            "llm_request_timeout": 60,
+            "sandbox_provider": "opensandbox",
+            "sandbox_timeout": 10,
+            "remote_tmux_binary_path": None,
+            **overrides,
+        }
+    )
 
 
 def test_instruction_joins_text_content():
@@ -167,27 +196,7 @@ async def test_nemo_gym_llm_records_every_responses_request_and_output():
 @pytest.mark.parametrize("dump_trajectory", [False, True])
 @pytest.mark.parametrize("debug", [False, True])
 async def test_execute_runs_terminus_in_seeded_sandbox(monkeypatch, dump_trajectory, debug):
-    config = Terminus2AgentConfig(
-        host="0.0.0.0",
-        port=8080,
-        entrypoint="app.py",
-        name="terminus_2_1_agent",
-        resources_server=ResourcesServerRef(type="resources_servers", name="swebench_resources_server"),
-        model_server=ModelServerRef(type="responses_api_models", name="policy_model"),
-        max_turns=100,
-        enable_summarize=True,
-        proactive_summarization_threshold=8000,
-        tmux_pane_width=160,
-        tmux_pane_height=40,
-        dump_trajectory=dump_trajectory,
-        debug=debug,
-        model_context_limit=32_000,
-        model_output_limit=4_000,
-        llm_request_timeout=60,
-        sandbox_provider="opensandbox",
-        sandbox_timeout=10,
-        remote_tmux_binary_path=None,
-    )
+    config = _terminus_config(dump_trajectory=dump_trajectory, debug=debug)
     set_level = MagicMock()
     monkeypatch.setattr(app_module.harbor_logger, "setLevel", set_level)
     server = Terminus2Agent(config=config, server_client=MagicMock(spec=ServerClient))
@@ -271,6 +280,8 @@ async def test_execute_runs_terminus_in_seeded_sandbox(monkeypatch, dump_traject
         "num_proactive_compactions": 0,
         "num_compactions": 2,
         "error": None,
+        "failure_reason": None,
+        "mask_sample": False,
         "usages": [],
     }
     assert response.output[-1].content[0].text == "done"
@@ -285,3 +296,260 @@ async def test_execute_runs_terminus_in_seeded_sandbox(monkeypatch, dump_traject
         ("tmux setup", {"timeout_s": None, "cwd": None, "user": None, "env": None}),
         ("tmux run", {"timeout_s": None, "cwd": None, "user": None, "env": None}),
     ]
+
+
+class _FakeContext:
+    n_input_tokens = None
+    n_cache_tokens = None
+    n_output_tokens = None
+    metadata = None
+
+
+class _FakeTerminus:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self._session = SimpleNamespace(stop=self.stop)
+        self._times_spent = []
+        self._num_proactive_compactions = 0
+        self._num_compactions = 0
+
+    async def stop(self):
+        return None
+
+    async def setup(self, environment):
+        return None
+
+    async def run(self, instruction, environment, context):
+        self._times_spent.append(1.0)
+        context.n_input_tokens = 0
+        context.n_output_tokens = 0
+
+
+class _ExplodingTerminus(_FakeTerminus):
+    """The harness failure this module regressed on, reproduced at `run`."""
+
+    async def run(self, instruction, environment, context):
+        raise AttributeError("'NoneType' object has no attribute 'total_tokens'")
+
+
+def _llm(client=None) -> NeMoGymLLM:
+    return NeMoGymLLM(
+        client=client if client is not None else MagicMock(),
+        model_name="policy_model",
+        model_context_limit=32_000,
+        model_output_limit=4_000,
+        llm_request_timeout=60,
+    )
+
+
+def _terminus(llm: NeMoGymLLM, logs_dir) -> NeMoGymTerminus2:
+    return NeMoGymTerminus2(
+        logs_dir=logs_dir,
+        model_name="policy_model",
+        max_turns=100,
+        parser_name="json",
+        enable_summarize=True,
+        proactive_summarization_threshold=8000,
+        tmux_pane_width=160,
+        tmux_pane_height=40,
+        record_terminal_session=False,
+        llm=llm,
+        dump_trajectory=False,
+    )
+
+
+def _usage(total_tokens: int) -> NeMoGymResponseUsage:
+    return NeMoGymResponseUsage(
+        input_tokens=total_tokens - 3,
+        input_tokens_details=NeMoGymResponseInputTokensDetails(cached_tokens=0),
+        output_tokens=3,
+        output_tokens_details=NeMoGymResponseOutputTokensDetails(reasoning_tokens=0),
+        total_tokens=total_tokens,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_response_without_usage_is_recorded_as_a_call_with_unknown_token_counts():
+    """`usage` is optional on a Responses payload, and a truncated, errored or
+    timed-out completion comes back without one. The call still happened, so it
+    still belongs in `usages` -- as None, meaning "tokens unknown"."""
+
+    class Client:
+        async def create_response(self, **_kwargs):
+            return NeMoGymResponse(
+                id="resp_1",
+                created_at=0,
+                model="policy_model",
+                object="response",
+                output=[
+                    NeMoGymResponseOutputMessage(
+                        id="msg_1",
+                        content=[NeMoGymResponseOutputText(type="output_text", text="answer", annotations=[])],
+                        role="assistant",
+                        status="completed",
+                        type="message",
+                    )
+                ],
+                tool_choice="auto",
+                tools=[],
+                parallel_tool_calls=True,
+                usage=None,
+            )
+
+    llm = _llm(Client())
+
+    response = await llm.call("first")
+
+    assert response.content == "answer"
+    assert response.usage is None
+    assert llm.usages == [None]
+
+
+@pytest.mark.asyncio
+async def test_proactive_summarization_survives_a_last_response_that_carried_no_usage(tmp_path):
+    """Regression: this raised `AttributeError: 'NoneType' object has no
+    attribute 'total_tokens'` out of `agent.run`, which `_execute` swallowed
+    into `error` while the verifier scored the half-finished sandbox 0 -- an
+    infrastructure failure charged to the model."""
+    llm = _llm()
+    agent = _terminus(llm, tmp_path)
+    chat = SimpleNamespace(messages=[{"role": "user", "content": "hello world"}])
+    llm.usages.append(None)
+
+    assert await agent._check_proactive_summarization(chat, "solve this", MagicMock()) is None
+
+
+def test_an_unusable_last_usage_falls_back_to_the_local_token_estimate(tmp_path):
+    """Falling back to 0 would read as an empty context and suppress compaction
+    until the model hit its real limit, so the fallback has to be the estimate
+    the agent uses everywhere else."""
+    llm = _llm()
+    agent = _terminus(llm, tmp_path)
+    chat = SimpleNamespace(messages=[{"role": "user", "content": "hello world"}])
+    llm.usages.append(None)
+
+    agent._is_check_proactive_summarization = True
+    counted = agent._count_total_tokens(chat)
+
+    agent._is_check_proactive_summarization = False
+    assert counted == agent._count_total_tokens(chat)
+
+
+def test_a_usable_last_usage_still_beats_the_local_token_estimate(tmp_path):
+    """The server-reported count is why this override exists: litellm cannot
+    tokenize an arbitrary policy model, so its estimate drifts from what the
+    endpoint actually charged."""
+    llm = _llm()
+    agent = _terminus(llm, tmp_path)
+    chat = SimpleNamespace(messages=[{"role": "user", "content": "hello world"}])
+    llm.usages.extend([None, _usage(4242)])
+
+    agent._is_check_proactive_summarization = True
+    assert agent._count_total_tokens(chat) == 4242
+
+    agent._is_check_proactive_summarization = False
+    assert agent._count_total_tokens(chat) != 4242
+
+
+@pytest.mark.asyncio
+async def test_an_exception_out_of_terminus_is_reported_as_an_infrastructure_failure(monkeypatch):
+    """A harness bug and a model that failed the task both land here as reward
+    0. Without a flag saying which, a broken agent looks like a weak model and
+    silently drags the benchmark score down."""
+    monkeypatch.setattr(app_module, "NeMoGymTerminus2", _ExplodingTerminus)
+    monkeypatch.setattr(app_module, "AgentContext", _FakeContext)
+    monkeypatch.setattr(Terminus2Agent, "base_url_for_run", lambda *_a, **_k: "http://model")
+    monkeypatch.setattr(app_module, "get_server_url", lambda _: "http://model")
+    clock = count(step=1.0)
+    monkeypatch.setattr(app_module, "perf_counter", lambda: next(clock))
+
+    async def sandbox_exec(command, **kwargs):
+        return SimpleNamespace(stdout="", stderr="", return_code=0)
+
+    server = Terminus2Agent(config=_terminus_config(), server_client=MagicMock(spec=ServerClient))
+
+    async def request_json():
+        return {"task_id": "task"}
+
+    request = SimpleNamespace(json=request_json, session={app_module.SESSION_ID_KEY: "session-1"})
+    _response, metrics = await server._execute(
+        request,
+        NeMoGymResponseCreateParamsNonStreaming(input="solve this"),
+        SimpleNamespace(exec=sandbox_exec),
+    )
+
+    assert metrics["terminus2_completed"] is False
+    assert metrics["mask_sample"] is True
+    assert "AttributeError" in metrics["failure_reason"]
+    assert "total_tokens" in metrics["failure_reason"]
+
+
+@pytest.mark.asyncio
+async def test_a_quarantined_row_reaches_the_verify_response(monkeypatch):
+    """Scoring reads the rollout row, not `_execute`'s return value, so the
+    classification is only useful if it survives the merge with the verifier's
+    result and the response model's validation."""
+
+    async def sandbox_exec(command, **kwargs):
+        return SimpleNamespace(stdout="", stderr="", return_code=0)
+
+    async def sandbox_stop():
+        return None
+
+    sandbox = SimpleNamespace(exec=sandbox_exec, stop=sandbox_stop)
+    posts = []
+
+    async def _seed_session_json():
+        return {"sandbox_handle": "sbx-1"}
+
+    async def post(**kwargs):
+        posts.append(kwargs)
+        return SimpleNamespace(cookies={}, json=_seed_session_json)
+
+    server_client = MagicMock(spec=ServerClient)
+    server_client.post = post
+
+    async def fake_get_response_json(_verification):
+        return {
+            "responses_create_params": {"input": "solve this"},
+            "response": posts[-1]["json"]["response"],
+            "reward": 0.0,
+            "evaluation_completed": True,
+        }
+
+    monkeypatch.setattr(app_module, "NeMoGymTerminus2", _ExplodingTerminus)
+    monkeypatch.setattr(app_module, "AgentContext", _FakeContext)
+    monkeypatch.setattr(Terminus2Agent, "base_url_for_run", lambda *_a, **_k: "http://model")
+    monkeypatch.setattr(Terminus2Agent, "_connect_sandbox", lambda _self, _id: _resolved(sandbox))
+    monkeypatch.setattr(app_module, "get_server_url", lambda _: "http://model")
+    monkeypatch.setattr(app_module, "raise_for_status", _noop_async)
+    monkeypatch.setattr(app_module, "get_response_json", fake_get_response_json)
+    clock = count(step=1.0)
+    monkeypatch.setattr(app_module, "perf_counter", lambda: next(clock))
+
+    server = Terminus2Agent(config=_terminus_config(), server_client=server_client)
+    request = SimpleNamespace(json=_task_json, cookies={}, session={app_module.SESSION_ID_KEY: "session-1"})
+
+    result = await server.run(
+        request,
+        app_module.Terminus2AgentRunRequest(
+            responses_create_params=NeMoGymResponseCreateParamsNonStreaming(input="solve this")
+        ),
+    )
+
+    assert result.reward == 0.0
+    assert result.mask_sample is True
+    assert "AttributeError" in result.failure_reason
+    assert result.model_dump()["mask_sample"] is True
+
+
+async def _noop_async(*_args, **_kwargs):
+    return None
+
+
+async def _resolved(value):
+    return value
+
+
+async def _task_json():
+    return {"task_id": "task"}

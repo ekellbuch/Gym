@@ -97,6 +97,10 @@ class Terminus2AgentVerifyResponse(BaseVerifyResponse):
     num_proactive_compactions: int
     num_compactions: int
     error: Optional[str]
+    # Set when the reward reflects a broken harness rather than the model's
+    # work, so downstream scoring can drop the row. The inherited
+    # `failure_reason` carries the human-readable why.
+    mask_sample: bool = False
 
 
 class NeMoGymSandboxEnvironment:
@@ -167,7 +171,7 @@ class NeMoGymLLM(BaseLLM):
         self._model_output_limit = model_output_limit
         self._llm_request_timeout = llm_request_timeout
         self.trajectory: list[NeMoGymResponseOutputItem] = []
-        self.usages: list[NeMoGymResponseUsage] = []
+        self.usages: list[Optional[NeMoGymResponseUsage]] = []
         self._times_spent = []
         self._last_input_items = []
         self._model_calls_gt_10min = 0
@@ -292,8 +296,17 @@ class NeMoGymTerminus2(Terminus2):
         return res
 
     def _count_total_tokens(self, *args, **kwargs):
+        # Terminus compacts the conversation once this number gets close to
+        # the context limit. The endpoint's own count is the accurate one, but
+        # a response can carry no usage payload at all -- truncated, errored,
+        # timed out -- and `call` records that as a None. Fall back to harbor's
+        # litellm estimate over the messages rather than to 0, which would read
+        # as an empty conversation and suppress compaction until a real call
+        # overflowed the context.
         if self._is_check_proactive_summarization and self._nemo_gym_llm.usages:
-            return self._nemo_gym_llm.usages[-1].total_tokens
+            last_usage = self._nemo_gym_llm.usages[-1]
+            if last_usage is not None:
+                return last_usage.total_tokens
         return super()._count_total_tokens(*args, **kwargs)
 
     async def _check_proactive_summarization(self, *args, **kwargs):
@@ -382,17 +395,24 @@ class Terminus2Agent(SimpleResponsesAPIAgent):
                 )
             await agent.setup(environment)
 
+            failure_reason = None
             try:
                 async with asyncio.timeout(self.config.sandbox_timeout):
                     await agent.run(instruction, environment, context)
                 terminus2_completed = True
                 error = None
             except TimeoutError:
+                # The task's own budget ran out. That is a real failure to
+                # solve it, so it stays in the score.
                 terminus2_completed = False
                 error = format_exc()
-            except:
+            except BaseException as exc:
+                # The harness broke, not the model. The verifier still grades
+                # whatever the sandbox happens to hold, so the row scores 0 and
+                # reads as a weak model. Record why, so scoring can drop it.
                 terminus2_completed = False
                 error = format_exc()
+                failure_reason = f"terminus2 harness error: {type(exc).__name__}: {exc}"
                 print(f"Hit exception while running Terminus2: {format_exc()}", file=sys.stderr)
             finally:
                 pass
@@ -434,6 +454,8 @@ class Terminus2Agent(SimpleResponsesAPIAgent):
             "num_proactive_compactions": agent._num_proactive_compactions,
             "num_compactions": llm._num_compactions,
             "error": error,
+            "failure_reason": failure_reason,
+            "mask_sample": failure_reason is not None,
             "usages": llm.usages,
         }
         return response, metrics
