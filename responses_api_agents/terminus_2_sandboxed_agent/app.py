@@ -395,15 +395,19 @@ class Terminus2Agent(SimpleResponsesAPIAgent):
 
             failure_reason = None
             try:
-                async with asyncio.timeout(self.config.sandbox_timeout):
+                async with asyncio.timeout(self.config.sandbox_timeout) as budget:
                     await agent.run(instruction, environment, context)
                 terminus2_completed = True
                 error = None
             except TimeoutError:
-                # The task's own budget ran out. That is a real failure to
-                # solve it, so it stays in the score.
+                # Two things raise TimeoutError here. `budget.expired()` means
+                # the task ran out its own clock -- a real failure to solve it,
+                # so it stays in the score. Otherwise `NeMoGymLLM.call` gave up
+                # on the model endpoint, which is infrastructure.
                 terminus2_completed = False
                 error = format_exc()
+                if not budget.expired():
+                    failure_reason = "terminus2 harness error: model endpoint stopped answering"
             except BaseException as exc:
                 # The harness broke, not the model. The verifier still grades
                 # whatever the sandbox happens to hold, so the row scores 0 and
@@ -499,7 +503,13 @@ class Terminus2Agent(SimpleResponsesAPIAgent):
             print("Failed to stop sandbox", format_exc(), file=sys.stderr)
 
         result = await get_response_json(verification)
+        verifier_result = dict(result)
+        # The verifier owns these fields too -- a broken judge sets its own
+        # `failure_reason`. Either side calling the row unusable is enough, so
+        # merge instead of letting the agent's None win.
         result.update(metrics)
+        result["failure_reason"] = metrics["failure_reason"] or verifier_result.get("failure_reason")
+        result["mask_sample"] = metrics["mask_sample"] or bool(verifier_result.get("mask_sample"))
         return Terminus2AgentVerifyResponse.model_validate(result)
 
 

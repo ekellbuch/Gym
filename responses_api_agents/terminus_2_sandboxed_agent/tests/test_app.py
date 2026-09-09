@@ -486,6 +486,45 @@ async def test_an_agent_timeout_stays_in_the_score(monkeypatch):
     assert metrics["failure_reason"] is None
 
 
+class _DeadEndpointTerminus(_FakeTerminus):
+    """`NeMoGymLLM.call` gives up on the model server after 10 timeouts."""
+
+    async def run(self, instruction, environment, context):
+        raise TimeoutError("Failed to query model endpoint due to timeouts after 10 attempts!")
+
+
+@pytest.mark.asyncio
+async def test_a_dead_model_endpoint_is_quarantined_not_scored(monkeypatch):
+    """`NeMoGymLLM.call` raises TimeoutError when the endpoint stops answering,
+    landing in the same handler as an expired task budget. Charging a dead vLLM
+    server to the model is the exact bias this agent is supposed to avoid."""
+    monkeypatch.setattr(app_module, "NeMoGymTerminus2", _DeadEndpointTerminus)
+    monkeypatch.setattr(app_module, "AgentContext", _FakeContext)
+    monkeypatch.setattr(Terminus2Agent, "base_url_for_run", lambda *_a, **_k: "http://model")
+    monkeypatch.setattr(app_module, "get_server_url", lambda _: "http://model")
+    clock = count(step=1.0)
+    monkeypatch.setattr(app_module, "perf_counter", lambda: next(clock))
+
+    async def sandbox_exec(command, **kwargs):
+        return SimpleNamespace(stdout="", stderr="", return_code=0)
+
+    server = Terminus2Agent(config=_terminus_config(), server_client=MagicMock(spec=ServerClient))
+
+    async def request_json():
+        return {"task_id": "task"}
+
+    request = SimpleNamespace(json=request_json, session={app_module.SESSION_ID_KEY: "session-1"})
+    _response, metrics = await server._execute(
+        request,
+        NeMoGymResponseCreateParamsNonStreaming(input="solve this"),
+        SimpleNamespace(exec=sandbox_exec),
+    )
+
+    assert metrics["terminus2_completed"] is False
+    assert metrics["mask_sample"] is True
+    assert "model endpoint" in metrics["failure_reason"]
+
+
 @pytest.mark.asyncio
 async def test_an_exception_out_of_terminus_is_reported_as_an_infrastructure_failure(monkeypatch):
     """A harness bug and a model that failed the task both land here as reward
@@ -576,6 +615,66 @@ async def test_a_quarantined_row_reaches_the_verify_response(monkeypatch):
     assert result.mask_sample is True
     assert "AttributeError" in result.failure_reason
     assert result.model_dump()["mask_sample"] is True
+
+
+@pytest.mark.asyncio
+async def test_the_verifier_keeps_its_own_failure_reason(monkeypatch):
+    """`failure_reason` is a BaseVerifyResponse field the verifier also sets --
+    bird_sql, spider2_lite, swe_pivot and image_tools all do. On a clean run the
+    agent contributes None, which must not erase the verifier's diagnosis."""
+
+    async def sandbox_exec(command, **kwargs):
+        return SimpleNamespace(stdout="", stderr="", return_code=0)
+
+    async def sandbox_stop():
+        return None
+
+    sandbox = SimpleNamespace(exec=sandbox_exec, stop=sandbox_stop)
+    posts = []
+
+    async def _seed_session_json():
+        return {"sandbox_handle": "sbx-1"}
+
+    async def post(**kwargs):
+        posts.append(kwargs)
+        return SimpleNamespace(cookies={}, json=_seed_session_json)
+
+    server_client = MagicMock(spec=ServerClient)
+    server_client.post = post
+
+    async def fake_get_response_json(_verification):
+        return {
+            "responses_create_params": {"input": "solve this"},
+            "response": posts[-1]["json"]["response"],
+            "reward": 0.0,
+            "evaluation_completed": True,
+            "failure_reason": "judge response unparseable after 3 attempts",
+            "mask_sample": True,
+        }
+
+    monkeypatch.setattr(app_module, "NeMoGymTerminus2", _FakeTerminus)
+    monkeypatch.setattr(app_module, "AgentContext", _FakeContext)
+    monkeypatch.setattr(Terminus2Agent, "base_url_for_run", lambda *_a, **_k: "http://model")
+    monkeypatch.setattr(Terminus2Agent, "_connect_sandbox", lambda _self, _id: _resolved(sandbox))
+    monkeypatch.setattr(app_module, "get_server_url", lambda _: "http://model")
+    monkeypatch.setattr(app_module, "raise_for_status", _noop_async)
+    monkeypatch.setattr(app_module, "get_response_json", fake_get_response_json)
+    clock = count(step=1.0)
+    monkeypatch.setattr(app_module, "perf_counter", lambda: next(clock))
+
+    server = Terminus2Agent(config=_terminus_config(), server_client=server_client)
+    request = SimpleNamespace(json=_task_json, cookies={}, session={app_module.SESSION_ID_KEY: "session-1"})
+
+    result = await server.run(
+        request,
+        app_module.Terminus2AgentRunRequest(
+            responses_create_params=NeMoGymResponseCreateParamsNonStreaming(input="solve this")
+        ),
+    )
+
+    assert result.terminus2_completed is True
+    assert result.failure_reason == "judge response unparseable after 3 attempts"
+    assert result.mask_sample is True
 
 
 async def _noop_async(*_args, **_kwargs):
