@@ -97,9 +97,9 @@ class Terminus2AgentVerifyResponse(BaseVerifyResponse):
     num_proactive_compactions: int
     num_compactions: int
     error: Optional[str]
-    # Set when the reward reflects a broken harness rather than the model's
-    # work, so downstream scoring can drop the row. The inherited
-    # `failure_reason` carries the human-readable why.
+    # Drop this row from scoring: its reward measures a broken harness, not the
+    # model. Same flag anyterminal_agent and anyswe_agent set; the inherited
+    # `failure_reason` says why in words.
     mask_sample: bool = False
 
 
@@ -296,13 +296,11 @@ class NeMoGymTerminus2(Terminus2):
         return res
 
     def _count_total_tokens(self, *args, **kwargs):
-        # Terminus compacts the conversation once this number gets close to
-        # the context limit. The endpoint's own count is the accurate one, but
-        # a response can carry no usage payload at all -- truncated, errored,
-        # timed out -- and `call` records that as a None. Fall back to harbor's
-        # litellm estimate over the messages rather than to 0, which would read
-        # as an empty conversation and suppress compaction until a real call
-        # overflowed the context.
+        # How big is the conversation? Terminus needs this to decide when to
+        # summarize it down. The server's own count is exact, so prefer it --
+        # but a response can arrive without one, which `call` stores as None.
+        # Use harbor's approximate count then. Never 0: that reads as an empty
+        # conversation, so it would never summarize.
         if self._is_check_proactive_summarization and self._nemo_gym_llm.usages:
             last_usage = self._nemo_gym_llm.usages[-1]
             if last_usage is not None:

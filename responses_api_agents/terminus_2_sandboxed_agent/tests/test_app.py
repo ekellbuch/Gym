@@ -307,14 +307,8 @@ class _FakeContext:
 
 class _FakeTerminus:
     def __init__(self, **kwargs):
-        self.kwargs = kwargs
-        self._session = SimpleNamespace(stop=self.stop)
         self._times_spent = []
         self._num_proactive_compactions = 0
-        self._num_compactions = 0
-
-    async def stop(self):
-        return None
 
     async def setup(self, environment):
         return None
