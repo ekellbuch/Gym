@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import asyncio
 import logging
 from itertools import count
 from types import SimpleNamespace
@@ -427,6 +428,7 @@ def test_an_unusable_last_usage_falls_back_to_the_local_token_estimate(tmp_path)
 
     agent._is_check_proactive_summarization = False
     assert counted == agent._count_total_tokens(chat)
+    assert counted > 0, "0 would read as an empty conversation and suppress summarization"
 
 
 def test_a_usable_last_usage_still_beats_the_local_token_estimate(tmp_path):
@@ -443,6 +445,45 @@ def test_a_usable_last_usage_still_beats_the_local_token_estimate(tmp_path):
 
     agent._is_check_proactive_summarization = False
     assert agent._count_total_tokens(chat) != 4242
+
+
+class _SlowTerminus(_FakeTerminus):
+    """Runs past the task's budget instead of failing."""
+
+    async def run(self, instruction, environment, context):
+        await asyncio.sleep(1)
+
+
+@pytest.mark.asyncio
+async def test_an_agent_timeout_stays_in_the_score(monkeypatch):
+    """A task that burned its own budget failed to solve the task. Masking it
+    would drop it from scoring -- and roughly half of Terminal-Bench ends this
+    way, so the benchmark would report only the tasks the model finished."""
+    monkeypatch.setattr(app_module, "NeMoGymTerminus2", _SlowTerminus)
+    monkeypatch.setattr(app_module, "AgentContext", _FakeContext)
+    monkeypatch.setattr(Terminus2Agent, "base_url_for_run", lambda *_a, **_k: "http://model")
+    monkeypatch.setattr(app_module, "get_server_url", lambda _: "http://model")
+    clock = count(step=1.0)
+    monkeypatch.setattr(app_module, "perf_counter", lambda: next(clock))
+
+    async def sandbox_exec(command, **kwargs):
+        return SimpleNamespace(stdout="", stderr="", return_code=0)
+
+    server = Terminus2Agent(config=_terminus_config(sandbox_timeout=0.01), server_client=MagicMock(spec=ServerClient))
+
+    async def request_json():
+        return {"task_id": "task"}
+
+    request = SimpleNamespace(json=request_json, session={app_module.SESSION_ID_KEY: "session-1"})
+    _response, metrics = await server._execute(
+        request,
+        NeMoGymResponseCreateParamsNonStreaming(input="solve this"),
+        SimpleNamespace(exec=sandbox_exec),
+    )
+
+    assert metrics["terminus2_completed"] is False
+    assert metrics["mask_sample"] is False
+    assert metrics["failure_reason"] is None
 
 
 @pytest.mark.asyncio
