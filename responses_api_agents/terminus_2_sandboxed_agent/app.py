@@ -97,10 +97,8 @@ class Terminus2AgentVerifyResponse(BaseVerifyResponse):
     num_proactive_compactions: int
     num_compactions: int
     error: Optional[str]
-    # True when this row's reward came out of a broken harness instead of the
-    # model's work. Nothing acts on it yet -- `compute_aggregate_metrics`
-    # averages every row -- so a flagged row still counts until someone filters
-    # it. `failure_reason` says what broke.
+    # True when the reward came from a broken harness rather than the model's
+    # work. Nothing filters on it yet; `failure_reason` says what broke.
     mask_sample: bool = False
 
 
@@ -297,11 +295,9 @@ class NeMoGymTerminus2(Terminus2):
         return res
 
     def _count_total_tokens(self, *args, **kwargs):
-        # How big is the conversation? Terminus needs this to decide when to
-        # summarize it down. The server's own count is exact, so prefer it --
-        # but a response can arrive without one, which `call` stores as None.
-        # Use harbor's approximate count then. Never 0: that reads as an empty
-        # conversation, so it would never summarize.
+        # Prefer the server's exact count. A response can arrive without one,
+        # which `call` stores as None; fall back to harbor's estimate, not 0,
+        # which would read as an empty conversation and suppress summarizing.
         if self._is_check_proactive_summarization and self._nemo_gym_llm.usages:
             last_usage = self._nemo_gym_llm.usages[-1]
             if last_usage is not None:
@@ -401,18 +397,16 @@ class Terminus2Agent(SimpleResponsesAPIAgent):
                 terminus2_completed = True
                 error = None
             except TimeoutError:
-                # Two things raise TimeoutError here. `budget.expired()` means
-                # the task ran out its own clock -- a real failure to solve it,
-                # so it stays in the score. Otherwise `NeMoGymLLM.call` gave up
-                # on the model endpoint, which is infrastructure.
+                # `budget.expired()` is the task's own clock running out, which
+                # is a real failure to solve it. Otherwise `NeMoGymLLM.call` gave
+                # up on the model endpoint.
                 terminus2_completed = False
                 error = format_exc()
                 if not budget.expired():
                     failure_reason = "terminus2 harness error: model endpoint stopped answering"
             except BaseException as exc:
-                # The harness broke, not the model. The verifier still grades
-                # whatever the sandbox happens to hold, so the row scores 0 and
-                # reads as a weak model. Record why, so scoring can drop it.
+                # The harness broke. The verifier still grades the sandbox and
+                # returns 0, so label the row.
                 terminus2_completed = False
                 error = format_exc()
                 failure_reason = f"terminus2 harness error: {type(exc).__name__}: {exc}"
@@ -504,13 +498,12 @@ class Terminus2Agent(SimpleResponsesAPIAgent):
             print("Failed to stop sandbox", format_exc(), file=sys.stderr)
 
         result = await get_response_json(verification)
-        verifier_result = dict(result)
-        # The verifier owns these fields too -- a broken judge sets its own
-        # `failure_reason`. Either side calling the row unusable is enough, so
-        # merge instead of letting the agent's None win.
+        # The verifier sets these too, so keep whichever side found a problem.
+        verifier_reason = result.get("failure_reason")
+        verifier_mask = bool(result.get("mask_sample"))
         result.update(metrics)
-        result["failure_reason"] = metrics["failure_reason"] or verifier_result.get("failure_reason")
-        result["mask_sample"] = metrics["mask_sample"] or bool(verifier_result.get("mask_sample"))
+        result["failure_reason"] = metrics["failure_reason"] or verifier_reason
+        result["mask_sample"] = metrics["mask_sample"] or verifier_mask
         return Terminus2AgentVerifyResponse.model_validate(result)
 
 

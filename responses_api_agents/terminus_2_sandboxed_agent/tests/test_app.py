@@ -367,7 +367,7 @@ def _usage(total_tokens: int) -> NeMoGymResponseUsage:
 async def test_a_response_without_usage_is_recorded_as_a_call_with_unknown_token_counts():
     """`usage` is optional on a Responses payload, and a truncated, errored or
     timed-out completion comes back without one. The call still happened, so it
-    still belongs in `usages` -- as None, meaning "tokens unknown"."""
+    still belongs in `usages`, recorded as None for "tokens unknown"."""
 
     class Client:
         async def create_response(self, **_kwargs):
@@ -443,8 +443,8 @@ class _SlowTerminus(_FakeTerminus):
 @pytest.mark.asyncio
 async def test_an_agent_timeout_stays_in_the_score(monkeypatch):
     """A task that burned its own budget failed to solve the task. Masking it
-    would drop it from scoring -- and roughly half of Terminal-Bench ends this
-    way, so the benchmark would report only the tasks the model finished."""
+    would drop it from scoring. Roughly half of Terminal-Bench ends this way,
+    so the benchmark would report only the tasks the model finished."""
     monkeypatch.setattr(app_module, "NeMoGymTerminus2", _SlowTerminus)
     monkeypatch.setattr(app_module, "AgentContext", _FakeContext)
     monkeypatch.setattr(Terminus2Agent, "base_url_for_run", lambda *_a, **_k: "http://model")
