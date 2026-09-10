@@ -97,9 +97,10 @@ class Terminus2AgentVerifyResponse(BaseVerifyResponse):
     num_proactive_compactions: int
     num_compactions: int
     error: Optional[str]
-    # Drop this row from scoring: its reward measures a broken harness, not the
-    # model. Same flag anyterminal_agent and anyswe_agent set; the inherited
-    # `failure_reason` says why in words.
+    # True when this row's reward came out of a broken harness instead of the
+    # model's work. Nothing acts on it yet -- `compute_aggregate_metrics`
+    # averages every row -- so a flagged row still counts until someone filters
+    # it. `failure_reason` says what broke.
     mask_sample: bool = False
 
 
