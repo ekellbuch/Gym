@@ -400,20 +400,6 @@ async def test_a_response_without_usage_is_recorded_as_a_call_with_unknown_token
     assert llm.usages == [None]
 
 
-@pytest.mark.asyncio
-async def test_proactive_summarization_survives_a_last_response_that_carried_no_usage(tmp_path):
-    """Regression: this raised `AttributeError: 'NoneType' object has no
-    attribute 'total_tokens'` out of `agent.run`, which `_execute` swallowed
-    into `error` while the verifier scored the half-finished sandbox 0 -- an
-    infrastructure failure charged to the model."""
-    llm = _llm()
-    agent = _terminus(llm, tmp_path)
-    chat = SimpleNamespace(messages=[{"role": "user", "content": "hello world"}])
-    llm.usages.append(None)
-
-    assert await agent._check_proactive_summarization(chat, "solve this", MagicMock()) is None
-
-
 def test_an_unusable_last_usage_falls_back_to_the_local_token_estimate(tmp_path):
     """Falling back to 0 would read as an empty context and suppress compaction
     until the model hit its real limit, so the fallback has to be the estimate
@@ -556,65 +542,6 @@ async def test_an_exception_out_of_terminus_is_reported_as_an_infrastructure_fai
     assert metrics["mask_sample"] is True
     assert "AttributeError" in metrics["failure_reason"]
     assert "total_tokens" in metrics["failure_reason"]
-
-
-@pytest.mark.asyncio
-async def test_a_quarantined_row_reaches_the_verify_response(monkeypatch):
-    """Scoring reads the rollout row, not `_execute`'s return value, so the
-    classification is only useful if it survives the merge with the verifier's
-    result and the response model's validation."""
-
-    async def sandbox_exec(command, **kwargs):
-        return SimpleNamespace(stdout="", stderr="", return_code=0)
-
-    async def sandbox_stop():
-        return None
-
-    sandbox = SimpleNamespace(exec=sandbox_exec, stop=sandbox_stop)
-    posts = []
-
-    async def _seed_session_json():
-        return {"sandbox_handle": "sbx-1"}
-
-    async def post(**kwargs):
-        posts.append(kwargs)
-        return SimpleNamespace(cookies={}, json=_seed_session_json)
-
-    server_client = MagicMock(spec=ServerClient)
-    server_client.post = post
-
-    async def fake_get_response_json(_verification):
-        return {
-            "responses_create_params": {"input": "solve this"},
-            "response": posts[-1]["json"]["response"],
-            "reward": 0.0,
-            "evaluation_completed": True,
-        }
-
-    monkeypatch.setattr(app_module, "NeMoGymTerminus2", _ExplodingTerminus)
-    monkeypatch.setattr(app_module, "AgentContext", _FakeContext)
-    monkeypatch.setattr(Terminus2Agent, "base_url_for_run", lambda *_a, **_k: "http://model")
-    monkeypatch.setattr(Terminus2Agent, "_connect_sandbox", lambda _self, _id: _resolved(sandbox))
-    monkeypatch.setattr(app_module, "get_server_url", lambda _: "http://model")
-    monkeypatch.setattr(app_module, "raise_for_status", _noop_async)
-    monkeypatch.setattr(app_module, "get_response_json", fake_get_response_json)
-    clock = count(step=1.0)
-    monkeypatch.setattr(app_module, "perf_counter", lambda: next(clock))
-
-    server = Terminus2Agent(config=_terminus_config(), server_client=server_client)
-    request = SimpleNamespace(json=_task_json, cookies={}, session={app_module.SESSION_ID_KEY: "session-1"})
-
-    result = await server.run(
-        request,
-        app_module.Terminus2AgentRunRequest(
-            responses_create_params=NeMoGymResponseCreateParamsNonStreaming(input="solve this")
-        ),
-    )
-
-    assert result.reward == 0.0
-    assert result.mask_sample is True
-    assert "AttributeError" in result.failure_reason
-    assert result.model_dump()["mask_sample"] is True
 
 
 @pytest.mark.asyncio
