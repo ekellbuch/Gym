@@ -35,6 +35,8 @@ BENCHMARK_DIR = Path(__file__).parent
 DATA_DIR = BENCHMARK_DIR / "data"
 OUTPUT_FPATH = DATA_DIR / "gpqa_diamond_benchmark.jsonl"
 OPTION_LETTERS = ["A", "B", "C", "D"]
+HF_REVISION = "83022cefff930aea54f654c0b282e74b9eeda5c6"
+EXPECTED_ROWS = 198
 
 
 def prepare() -> Path:
@@ -43,7 +45,9 @@ def prepare() -> Path:
 
     print("Downloading GPQA Diamond from HuggingFace...")
     hf_token = get_global_config_dict().get(HF_TOKEN_KEY_NAME)
-    ds = load_dataset("Idavidrein/gpqa", "gpqa_diamond", split="train", token=hf_token)
+    ds = load_dataset("Idavidrein/gpqa", "gpqa_diamond", split="train", token=hf_token, revision=HF_REVISION)
+    if len(ds) != EXPECTED_ROWS:
+        raise ValueError(f"Expected {EXPECTED_ROWS} GPQA Diamond rows, got {len(ds)}")
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 

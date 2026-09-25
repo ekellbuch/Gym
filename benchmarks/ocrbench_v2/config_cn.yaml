@@ -1,0 +1,23 @@
+# OCRBench_v2 Chinese rows from VLMEvalKitMcore@6962c8d; rule-based scorer.
+config_paths:
+  - resources_servers/vlm_eval_kit/configs/vlm_eval_kit.yaml
+
+ocrbench_v2_cn_benchmark_resources_server:
+  _inherit_from: vlm_eval_kit_resources_server
+  resources_servers:
+    vlm_eval_kit:
+      mcore_source_path: results/oracle-upstream/VLMEvalKitMcore-6962c8d06b2b7b26a74a73d6212c06562b63e1b7
+
+ocrbench_v2_cn_benchmark_simple_agent:
+  _inherit_from: vlm_eval_kit_simple_agent
+  responses_api_agents:
+    simple_agent:
+      resources_server:
+        name: ocrbench_v2_cn_benchmark_resources_server
+      datasets:
+      - name: ocrbench_v2_cn
+        type: benchmark
+        jsonl_fpath: benchmarks/ocrbench_v2/data/ocrbench_v2_cn_benchmark.jsonl
+        prompt_config: null
+        prepare_script: benchmarks/ocrbench_v2/prepare_cn.py
+        num_repeats: 1

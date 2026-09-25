@@ -8,8 +8,9 @@ import io
 import json
 import shlex
 import tarfile
+import tempfile
 from copy import deepcopy
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from nemo_gym.sandbox import AsyncSandbox, SandboxResources, SandboxSpec, resolve_provider_config
@@ -36,6 +37,7 @@ class SharedLogs:
         self.cleanup_errors = []
         self._cleanup_task = None
         self.initialized = False
+        self.solution_staged = False
         provider = deepcopy(environment.provider_config)
         self.pool = environment.pool
         # The helper needs no GPU, but must use the workload's deployment so
@@ -74,6 +76,38 @@ class SharedLogs:
             "mountPath": "/logs",
             "readOnly": False,
         }
+
+    def solution_volume(self):
+        """Expose the published solution only to the agent, without changing its user."""
+        return {
+            "name": "tb4-solution",
+            "host": {"path": self.host_path},
+            "subPath": f"{self.relative}/solution",
+            "mountPath": "/solution",
+            "readOnly": False,
+        }
+
+    async def stage_solution(self, source):
+        """Use the trusted helper to copy official files before the non-root agent starts."""
+        if not (source / "solve.sh").is_file():
+            raise FileNotFoundError(f"Official solution script missing: {source / 'solve.sh'}")
+        archive_path = f"{self.root}/.solution.tar.gz"
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "solution.tar.gz"
+            with tarfile.open(archive, "w:gz") as stream:
+                stream.add(source, arcname="solution")
+            await self.main.upload(archive, archive_path)
+        # This archive is made locally from the hash-validated official package,
+        # just like upload_dir's tar transfer. Preserve modes and symlinks exactly.
+        await self.python(
+            "import os, sys, tarfile\n"
+            "with tarfile.open(sys.argv[1]) as archive:\n"
+            " archive.extractall(sys.argv[2], filter='fully_trusted')\n"
+            "os.unlink(sys.argv[1])\n",
+            archive_path,
+            self.root,
+        )
+        self.solution_staged = True
 
     async def python(self, source, *args):
         command = "python3 -c " + shlex.quote(source) + " " + " ".join(shlex.quote(str(a)) for a in args)

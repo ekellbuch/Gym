@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Native WMT24++ scorer, including COMET and its configured GPU actor pool.
+config_paths:
+  - benchmarks/wmt24pp/config.yaml
+# Submit published translations directly; no generating policy is needed.
+wmt_translation_simple_agent: null
+wmt24pp_wmt_translation_simple_agent: null

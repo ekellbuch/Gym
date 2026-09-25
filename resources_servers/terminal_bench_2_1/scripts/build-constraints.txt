@@ -1,0 +1,9 @@
+# Build-backend constraint for the `uv pip install` this script's `gym env start`
+# runs to build terminal_bench_2_1_resources_server's per-server venv (uv reads
+# this through UV_BUILD_CONSTRAINT).
+#
+# setuptools-scm 10.x pipes all tracked paths into `git check-attr --stdin` before
+# reading any output; with Gym's ~5,000 tracked files that exceeds the pipe buffer
+# and both processes block forever, which surfaces as an indefinite hang during
+# server venv setup (no error, no progress — just a stuck `uv pip install`).
+setuptools-scm<10

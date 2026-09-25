@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Keep the native BrowseComp judge/prompt; disable the agent that performs searches.
+config_paths:
+  - benchmarks/browsecomp/config.yaml
+
+browsecomp_benchmark_agent: null
+judge_model:
+  responses_api_models:
+    vllm_model:
+      api_key: ${oc.env:JUDGE_API_KEY,null}
+
+browsecomp_benchmark_resources_server:
+  resources_servers:
+    browsecomp_advanced_harness:
+      # Native startup validates a search key even when only /verify is called.
+      search_provider: tavily
+      tavily_api_key: ${oc.env:TAVILY_API_KEY,null}
+      exclude_domains_file_path: results/browsecomp_oracle/exclude_domains.json

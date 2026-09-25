@@ -324,3 +324,37 @@ def test_logs_helper_uses_task_deployment_and_independent_role_mounts(
     assert env.provider_config["opensandbox"]["connection"]["domain"] == pool + ".invalid"
     env.shared_logs = logs
     assert env.build_spec().provider_options["volumes"] == [logs.volume("verifier" if verifier else "agent")]
+
+
+async def test_solution_mount_preserves_official_bytes_modes_and_agent_user(tmp_path, monkeypatch):
+    """The root helper stages an unmodified solution for the agent alone and cleans it up."""
+    logs, helper, _ = shared(tmp_path, monkeypatch)
+
+    async def upload(source, target):
+        shutil.copyfile(source, target)
+
+    helper.upload = upload
+    await logs.start()
+    solution = tmp_path / "published-solution"
+    solution.mkdir(mode=0o755)
+    (solution / "solve.sh").write_bytes(b"#!/bin/bash\ncat /solution/support.bin\n")
+    (solution / "solve.sh").chmod(0o751)
+    (solution / "support.bin").write_bytes(bytes(range(256)))
+    (solution / "support.bin").chmod(0o640)
+    (solution / "link").symlink_to("support.bin")
+    await logs.stage_solution(solution)
+    staged = Path(logs.root) / "solution"
+    for name in ("solve.sh", "support.bin"):
+        assert (staged / name).read_bytes() == (solution / name).read_bytes()
+        assert (staged / name).stat().st_mode & 0o777 == (solution / name).stat().st_mode & 0o777
+    assert (staged / "link").readlink() == Path("support.bin")
+    agent, _, _, _ = make_environment(tmp_path / "agent", monkeypatch)
+    verifier, _, _, _ = make_environment(tmp_path / "verifier", monkeypatch, verifier=True)
+    agent.shared_logs = logs
+    verifier.shared_logs = logs
+    assert agent.task.config.agent.user == "task-user"
+    assert [volume["mountPath"] for volume in agent.build_spec().provider_options["volumes"]] == ["/logs", "/solution"]
+    assert [volume["mountPath"] for volume in verifier.build_spec().provider_options["volumes"]] == ["/logs"]
+    assert logs.solution_volume()["subPath"] == f"{logs.relative}/solution"
+    await logs.stop()
+    assert not staged.exists()

@@ -27,10 +27,19 @@ BENCHMARK_DIR = Path(__file__).parent.parent
 DATA_DIR = BENCHMARK_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_FPATH = DATA_DIR / "swebench_verified_benchmark.jsonl"
+DATASET_REVISION = "c104f840cc67f8b6eec6f759ebc8b2693d585d4a"
+EXPECTED_ROWS = 500
 
 
 def prepare():
-    ds = load_dataset("princeton-nlp/SWE-bench_Verified", split="test", token=get_hf_token())
+    ds = load_dataset(
+        "princeton-nlp/SWE-bench_Verified",
+        revision=DATASET_REVISION,
+        split="test",
+        token=get_hf_token(),
+    )
+    if len(ds) != EXPECTED_ROWS:
+        raise ValueError(f"Expected {EXPECTED_ROWS} SWE-bench Verified tasks, got {len(ds)}")
 
     prompt_template = Path("benchmarks/swebench/minimax_prompt.txt").read_text()
 

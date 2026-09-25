@@ -50,6 +50,40 @@ gym env start \
     "++wmt24pp_wmt_translation_resources_server.resources_servers.wmt_translation.compute_comet=false"
 ```
 
+To check the official-reference submission and native CPU metrics without a GPU,
+start this reference-only Gym server in one terminal from the Gym root:
+
+```bash
+RAY_ENABLE_UV_RUN_RUNTIME_ENV=0 uv run --locked gym env start \
+    --config scripts/run_oracles/configs/wmt24pp.yaml \
+    ++head_server.port=11221 ++port_range_low=24100 ++port_range_high=24199 \
+    ++wmt24pp_wmt_translation_resources_server.resources_servers.wmt_translation.compute_comet=false
+```
+
+Then run the following in another terminal. This is a **one-row diagnostic**,
+not the full WMT24++ XCOMET-XXL result:
+
+```bash
+uv run --locked python scripts/run_oracles/submit_references.py \
+    ++head_server.port=11221 \
+    +benchmark_jsonl=benchmarks/wmt24pp/data/wmt24pp_benchmark.jsonl \
+    +resources_server=wmt24pp_wmt_translation_resources_server \
+    +reference_field=translation \
+    +prompt_config=benchmarks/wmt24pp/prompts/default.yaml \
+    +output_jsonl=results/wmt24pp_cpu_smoke.jsonl +limit=1
+uv run --locked gym eval aggregate \
+    --config scripts/run_oracles/configs/wmt24pp.yaml \
+    --input-glob results/wmt24pp_cpu_smoke.jsonl \
+    --output results/wmt24pp_cpu_smoke.jsonl \
+    +merge_shards=false ++head_server.port=11221 \
+    ++wmt24pp_wmt_translation_resources_server.resources_servers.wmt_translation.compute_comet=false
+```
+
+The full oracle wrapper, `bash scripts/run_oracles/wmt24pp.sh`, submits the
+published `translation` field unchanged and leaves COMET enabled. It requires
+a Ray cluster advertising `extra_gpu`; its aggregation command must contact
+the same Gym head server that verified the rows.
+
 ## Collecting rollouts
 
 ```bash

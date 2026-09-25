@@ -1,0 +1,26 @@
+# MMLongBench-Doc uses the published answer and answer-format columns from the
+# exact VLMEvalKitMcore revision used for the upstream Gym reference run.
+config_paths:
+  - resources_servers/vlm_eval_kit/configs/vlm_eval_kit.yaml
+
+mmlongbench_doc_resources_server:
+  _inherit_from: vlm_eval_kit_resources_server
+  resources_servers:
+    vlm_eval_kit:
+      mcore_source_path: results/oracle-upstream/VLMEvalKitMcore-6962c8d06b2b7b26a74a73d6212c06562b63e1b7
+      judge_model: azure/openai/gpt-4o
+      judge_api_key: ${oc.env:INFERENCE_API_KEY}
+
+mmlongbench_doc_simple_agent:
+  _inherit_from: vlm_eval_kit_simple_agent
+  responses_api_agents:
+    simple_agent:
+      resources_server:
+        name: mmlongbench_doc_resources_server
+      datasets:
+      - name: MMLongBench_DOC
+        type: benchmark
+        jsonl_fpath: benchmarks/mmlongbench_doc/data/mmlongbench_doc_benchmark.jsonl
+        prompt_config: null
+        prepare_script: benchmarks/mmlongbench_doc/prepare.py
+        num_repeats: 1

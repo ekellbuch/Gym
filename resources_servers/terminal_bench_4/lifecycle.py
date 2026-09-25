@@ -139,6 +139,8 @@ async def prepare_session(session, loader):
                 session.verifier_environment.shared_logs = None
                 session.diagnostics.append({"operation": "efs_logs_fallback", "role": "helper", "error": str(exc)})
             session.persist()
+            if session.config.is_verifying_golden_patch and session.environment.shared_logs is not None:
+                await session.shared_logs.stage_solution(session.task.path / "solution")
         await session.environment.start()
         if getattr(session.environment, "efs_logs_fallback", None):
             session.verifier_environment.shared_logs = None

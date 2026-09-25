@@ -35,6 +35,8 @@ BENCHMARK_DIR = Path(__file__).parent
 DATA_DIR = BENCHMARK_DIR / "data"
 OUTPUT_FPATH = DATA_DIR / "hle_benchmark.jsonl"
 OUTPUT_VISION_FPATH = DATA_DIR / "hle_benchmark_vision.jsonl"
+# Pin the gated official test split so text and full preparation use one snapshot.
+HF_REVISION = "5a81a4c7271a2a2a312b9a690f0c2fde837e4c29"
 
 # Prompt template used to materialize inputs in vision mode. Kept in sync with the
 # text-only path, which applies this same template at rollout time via prompt_config.
@@ -64,7 +66,7 @@ def prepare(include_vision: bool = False) -> Path:
 
     print("Downloading HLE from HuggingFace...")
     hf_token = get_global_config_dict().get(HF_TOKEN_KEY_NAME)
-    ds = load_dataset("cais/hle", split="test", token=hf_token)
+    ds = load_dataset("cais/hle", split="test", revision=HF_REVISION, token=hf_token)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -399,6 +399,9 @@ dev = [
     # License: Apache 2.0 https://github.com/jamielennox/requests-mock/blob/9742d02a8cad17276dbeba7b300b6d27ae1b6fb1/LICENSE
     "requests-mock",
 ]
+graphwalks = [
+    "tiktoken==0.13.0",
+]
 
 [dependency-groups]
 # Codec-bearing packages excluded from the shipped package and container.

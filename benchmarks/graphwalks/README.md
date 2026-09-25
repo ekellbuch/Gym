@@ -28,7 +28,7 @@ The N3 1M variant requires HF auth for the gated NVIDIA repo
 
 ```bash
 # Default (o200k_base, no filter)
-gym eval prepare --benchmark graphwalks
+uv run --locked --extra graphwalks gym eval prepare --benchmark graphwalks
 
 # N3 1M variant
 gym eval prepare --benchmark graphwalks/config_n3_1m
@@ -38,7 +38,7 @@ For one-off custom builds (different tokenizer / cap / output path),
 invoke `prepare.py` directly:
 
 ```bash
-python benchmarks/graphwalks/prepare.py \
+uv run --locked --extra graphwalks python benchmarks/graphwalks/prepare.py \
     --tokenizer_name meta-llama/Llama-3.1-8B-Instruct \
     --max_context_tokens 131072 \
     --output_fpath benchmarks/graphwalks/data/graphwalks_llama_128k_benchmark.jsonl

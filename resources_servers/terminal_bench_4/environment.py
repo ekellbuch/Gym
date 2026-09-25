@@ -132,6 +132,13 @@ class Environment:
                 ):
                     raise ValueError("EFS logs conflict with a configured /logs mount")
             volumes.append(self.shared_logs.volume(self.log_role))
+            if self.log_role == "agent" and self.shared_logs.solution_staged:
+                for volume in volumes:
+                    target = PurePosixPath(volume.get("mountPath", ""))
+                    solution = PurePosixPath("/solution")
+                    if target == solution or target in solution.parents or solution in target.parents:
+                        raise ValueError("Official solution conflicts with a configured /solution mount")
+                volumes.append(self.shared_logs.solution_volume())
             options["volumes"] = volumes
         if settings.network_mode == "no-network":
             options["network_policy"] = {"defaultAction": "deny", "egress": []}

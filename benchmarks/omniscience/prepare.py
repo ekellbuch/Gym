@@ -33,6 +33,8 @@ from nemo_gym.global_config import get_hf_token
 BENCHMARK_DIR = Path(__file__).parent
 DATA_DIR = BENCHMARK_DIR / "data"
 OUTPUT_FPATH = DATA_DIR / "omniscience_benchmark.jsonl"
+# The public release is a 600-question subset of AA's 6,000-question benchmark.
+HF_REVISION = "e4883edbb9f5ccf2b2a8fdc6fb65e01a58e99849"
 
 
 def prepare() -> Path:
@@ -40,7 +42,9 @@ def prepare() -> Path:
     from datasets import load_dataset
 
     print("Downloading AA-Omniscience-Public from HuggingFace...")
-    ds = load_dataset("ArtificialAnalysis/AA-Omniscience-Public", split="train", token=get_hf_token())
+    ds = load_dataset(
+        "ArtificialAnalysis/AA-Omniscience-Public", split="train", revision=HF_REVISION, token=get_hf_token()
+    )
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 

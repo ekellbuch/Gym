@@ -1,0 +1,24 @@
+config_paths:
+  - resources_servers/vlm_eval_kit/configs/vlm_eval_kit.yaml
+
+mathvision_resources_server:
+  _inherit_from: vlm_eval_kit_resources_server
+  resources_servers:
+    vlm_eval_kit:
+      mcore_source_path: results/oracle-upstream/VLMEvalKitMcore-6962c8d06b2b7b26a74a73d6212c06562b63e1b7
+      judge_model: openai/openai/gpt-4o-mini
+      judge_api_key: ${oc.env:INFERENCE_API_KEY}
+
+mathvision_simple_agent:
+  _inherit_from: vlm_eval_kit_simple_agent
+  responses_api_agents:
+    simple_agent:
+      resources_server:
+        name: mathvision_resources_server
+      datasets:
+      - name: MathVision
+        type: benchmark
+        jsonl_fpath: benchmarks/mathvision/data/mathvision_benchmark.jsonl
+        prompt_config: null
+        prepare_script: benchmarks/mathvision/prepare.py
+        num_repeats: 1

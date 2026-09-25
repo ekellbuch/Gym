@@ -1,0 +1,845 @@
+[
+  {
+    "id": "aa_briefcase",
+    "prepare_command": null,
+    "source_files": [],
+    "reference_source": [],
+    "runner_command": null,
+    "blocker": "Exact benchmark not found in Gym paths or sibling reviewed/config benchmark sources; no substitute selected. Also searched cfafe99c83c712033dc6b8105bbe7a409c592574 paths and benchmark/resource/agent contents without finding exact variant.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "aa_lcr",
+    "prepare_command": "uv run --locked python -c 'from benchmarks.aalcr.prepare_v1_1 import prepare; print(prepare())'",
+    "source_files": [
+      "benchmarks/aalcr/prepare_v1_1.py",
+      "benchmarks/aalcr/prepare.py"
+    ],
+    "reference_source": "ArtificialAnalysis/AA-LCR v1.1 pinned revision; prepared answer field,100rows.",
+    "runner_command": "bash scripts/run_oracles/aa_lcr.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git",
+    "submission_implementation": "scripts/run_oracles/submit_references.py (user-authorized local transport/formatting of published answers; native grading unchanged)",
+    "validation": "Native config, reference payload and shell checks passed; full evaluation not performed."
+  },
+  {
+    "id": "aa_omniscience",
+    "prepare_command": "uv run --locked python -c 'from benchmarks.omniscience.prepare import prepare; print(prepare())'",
+    "source_files": [
+      "benchmarks/omniscience/prepare.py"
+    ],
+    "reference_source": "ArtificialAnalysis/AA-Omniscience-Public; expected_answer field,600rows.",
+    "runner_command": null,
+    "blocker": "Only the 600-question public subset has published answers. The full 6,000-question AA benchmark is private, and replaying all correct public answers leaves the non-hallucination denominator at zero; no valid exact oracle score results.",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git",
+    "validation": "Official public preparation produced 600 answered rows; runner exits 2 after preparation without claiming an oracle score."
+  },
+  {
+    "id": "aegis_v2_no_reasoning",
+    "prepare_command": null,
+    "source_files": [],
+    "reference_source": [],
+    "runner_command": null,
+    "blocker": "Exact no_reasoning variant not found; reasoning variant not substituted. Also searched cfafe99c83c712033dc6b8105bbe7a409c592574 paths and benchmark/resource/agent contents without finding exact variant.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "aegis_v2_reasoning",
+    "prepare_command": null,
+    "source_files": [
+      "https://gitlab-master.nvidia.com/dl/JoC/competitive_evaluation/nvidia-eval-factory-benchmarking/-/blob/cded69b480b6a72a65f3f8d646b7bd3ec19d045e/reviewed_configs/vpr/2026/nemotron-3-nano-hsg/safety_ruler.yaml",
+      "https://gitlab-master.nvidia.com/dl/JoC/competitive_evaluation/nvidia-eval-factory-benchmarking/-/blob/cded69b480b6a72a65f3f8d646b7bd3ec19d045e/reviewed_configs/vpr/2025/Nemotron-Super-49B-v1_5-NVFP4/aegis_v2_reasoning.yaml"
+    ],
+    "reference_source": [
+      "Reviewed evaluator config names aegis_v2_reasoning and safety-harness judge; older config references external Aegis_v2_testset_unredacted.csv."
+    ],
+    "runner_command": null,
+    "blocker": "Existing non-Gym evaluator configuration; Gym preparation and upstream oracle runner not established. Also searched cfafe99c83c712033dc6b8105bbe7a409c592574 paths and benchmark/resource/agent contents without finding exact variant.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "agentdyn",
+    "prepare_command": null,
+    "source_files": [],
+    "reference_source": [],
+    "runner_command": null,
+    "blocker": "Exact benchmark not found in Gym or sibling reviewed/config benchmark sources. Also searched cfafe99c83c712033dc6b8105bbe7a409c592574 paths and benchmark/resource/agent contents without finding exact variant.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "apex_shortlist",
+    "prepare_command": "uv run --locked python -c 'from benchmarks.apex_shortlist.prepare import prepare; print(prepare())'",
+    "source_files": [
+      "benchmarks/apex_shortlist/prepare.py"
+    ],
+    "reference_source": "MathArena/apex-shortlist; answer becomes expected_answer.",
+    "runner_command": "bash scripts/run_oracles/apex_shortlist.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git",
+    "submission_implementation": "scripts/run_oracles/submit_references.py (user-authorized local transport/formatting of published answers; native grading unchanged)",
+    "validation": "Full native Gym run: 47/47 verified, zero invalid/errors, mean reward 1.0; pinned dataset preparation reproduces input SHA256 38848d142b5705017f708b7558d5c89644da3dd740e2a6a528b5e45f5eaf969a.",
+    "runtime_requirement": "Native schema requires an unused judge model registration; should_use_judge=false and symbolic grading retained.",
+    "dataset_revision": "MathArena/apex-shortlist@f3efdf224ef665f129ddaae37699f6098c65781b"
+  },
+  {
+    "id": "automation_bench",
+    "prepare_command": "uv run --locked --with-editable benchmarks/automationbench gym eval prepare --config benchmarks/automationbench/config.yaml",
+    "source_files": [
+      "benchmarks/automationbench/prepare.py",
+      "benchmarks/automationbench/config.yaml",
+      "benchmarks/automationbench/pyproject.toml",
+      "benchmarks/automationbench/automationbench_env/__init__.py"
+    ],
+    "reference_source": [
+      "zapier/AutomationBench git commit 4a8e106 via benchmarks/automationbench/pyproject.toml",
+      "Environment get_combined_dataset supplies answer (possibly empty), info assertions and initial world; preparation retains these. No action solution established."
+    ],
+    "runner_command": null,
+    "blocker": "Native preparation now installs the local AutomationBench environment. No official executable reference-action trajectory or upstream deterministic oracle runner established; native scorer checks post-action world assertions.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "baby_vision",
+    "prepare_command": "uv run --locked python benchmarks/babyvision/prepare.py",
+    "prepare_cwd": "Current Gym repository root",
+    "source_repo": "https://gitlab-master.nvidia.com/dl/nemo/gym.git",
+    "source_commit": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_files": [
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/babyvision/prepare.py",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/babyvision/config.yaml",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:resources_servers/vlm_eval_kit/prepare_data.py",
+      "../nvidia-eval-factory-benchmarking/configs/benchmarks/baby-vision/bench.yaml"
+    ],
+    "reference_source": "Official BabyVision author archive at commit 7f92fd4b1dc1c68b7b936a9bc09c68b4a944a55a, data/babyvision_data.zip SHA256 e5e16e7104b080bac7e67bb98d74bd5057f7151f487cd2f61991106253751e54; 388 published answers",
+    "runner_command": "bash scripts/run_oracles/baby_vision.sh [positive-limit]",
+    "blocker": "The configured judge endpoint returned HTTP 401, so no oracle score was produced. The public author dataset TSV differs in hash from the older internal staged TSV; row-level variant parity is unverified."
+  },
+  {
+    "id": "bbq",
+    "prepare_command": null,
+    "source_files": [
+      "resources_servers/bbq/README.md",
+      "resources_servers/bbq/configs/bbq.yaml",
+      "../nvidia-eval-factory-benchmarking/reviewed_configs/vpr/2025/Nemotron-Super-49B-v1_5-NVFP4/bbq_manual/README.md"
+    ],
+    "reference_source": "Current Gym bbq has five synthetic source-traced fixtures with expected_values labels; explicitly not raw BBQ. Reviewed evaluation source https://gitlab-master.nvidia.com/trustworthy-ai-product/llm-bias-and-fairness-assessment-datasets.git is not commit pinned.",
+    "runner_command": null,
+    "blocker": "Current Gym BBQ resource is synthetic training task, not exact BBQ evaluation dataset. Reviewed BBQ source is internal and unpinned; no native preparation or oracle established. Do not substitute fixtures.",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "browsecomp",
+    "prepare_command": "uv run --locked gym eval prepare --config benchmarks/browsecomp/config.yaml",
+    "source_files": [
+      "benchmarks/browsecomp/prepare.py",
+      "benchmarks/browsecomp/config.yaml"
+    ],
+    "reference_source": [
+      "https://openaipublic.blob.core.windows.net/simple-evals/browse_comp_test_set.csv",
+      "Decrypts source answer using canary into ground_truth."
+    ],
+    "runner_command": "bash scripts/run_oracles/browsecomp.sh",
+    "blocker": null,
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git",
+    "submission_implementation": "scripts/run_oracles/submit_references.py (user-authorized local transport/formatting of published answers; native grading unchanged)",
+    "validation": "Native config, reference payload and shell checks passed; full evaluation not performed."
+  },
+  {
+    "id": "browsecomp_opencode",
+    "prepare_command": null,
+    "source_files": [],
+    "reference_source": [],
+    "runner_command": null,
+    "blocker": "Exact OpenCode variant not found in inspected Gym or sibling reviewed configuration sources; browsecomp/config.yaml exists but is not silently substituted. Also searched cfafe99c83c712033dc6b8105bbe7a409c592574 paths and benchmark/resource/agent contents without finding exact variant.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "cbrne",
+    "prepare_command": "bash scripts/run_oracles/cbrne.sh --prepare-only",
+    "source_files": [
+      "https://gitlab-master.nvidia.com/dl/JoC/competitive_evaluation/nvidia-eval-factory-benchmarking/-/blob/cded69b480b6a72a65f3f8d646b7bd3ec19d045e/configs/benchmarks/cbrne/bench.yaml",
+      "b1d029e0309417be599b1b66a5846bc818209b6d:benchmarks/cbrne/prepare.py",
+      "b1d029e0309417be599b1b66a5846bc818209b6d:benchmarks/cbrne/config.yaml",
+      "b1d029e0309417be599b1b66a5846bc818209b6d:resources_servers/cbrne_benchmark/app.py",
+      "b1d029e0309417be599b1b66a5846bc818209b6d:resources_servers/cbrne_benchmark/README.md"
+    ],
+    "reference_source": [
+      "GitLab project 191584 Model Registry dataset cbrne_benchmark version 0.0.1 artifact validation.jsonl",
+      "verifier_metadata.updated_category, threat_type, and optional expected_behavior (should_refuse/should_answer); expected behavior otherwise derived from category. No canonical response solution established."
+    ],
+    "runner_command": null,
+    "blocker": "Run from specified upstream commit; current checkout lacks this benchmark. Dataset requires GitLab registry access. No dedicated upstream oracle execution command found in pinned tree.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "b1d029e0309417be599b1b66a5846bc818209b6d",
+    "source_repo": "https://gitlab-master.nvidia.com/dl/nemo/gym",
+    "registry_uri": "https://gitlab-master.nvidia.com/api/v4/projects/191584/ml/mlflow",
+    "validation": "Pinned upstream Gym b1d029e0 prepare-only command completed with 1,142 registry rows; no oracle runner or score."
+  },
+  {
+    "id": "charxiv_rq",
+    "prepare_command": "uv run --locked python benchmarks/charxiv_rq/prepare.py",
+    "prepare_cwd": "Current Gym repository root",
+    "source_repo": "https://gitlab-master.nvidia.com/dl/nemo/gym.git",
+    "source_commit": "4718d1c5bbbba3a143be60849810da5fc6ab631b",
+    "source_files": [
+      "4718d1c5bbbba3a143be60849810da5fc6ab631b:benchmarks/charxiv_rq/prepare.py",
+      "4718d1c5bbbba3a143be60849810da5fc6ab631b:benchmarks/charxiv_rq/config.yaml",
+      "4718d1c5bbbba3a143be60849810da5fc6ab631b:resources_servers/vlm_eval_kit/prepare_data.py",
+      "../nvidia-eval-factory-benchmarking/configs/benchmarks/charxiv-rq/bench.yaml"
+    ],
+    "reference_source": "CharXiv_reasoning_val: answer plus grading_query (ground truth embedded in judge prompt)",
+    "runner_command": "bash scripts/run_oracles/charxiv_rq.sh [positive-limit]",
+    "blocker": "Full 1000-row run submitted: 998 valid rows scored 1.0, but two published answers with leading spaces became nonexact after Gym stripped the response and required the judge. The configured endpoint returned HTTP 401 for those two; the complete oracle score remains unavailable."
+  },
+  {
+    "id": "critpt",
+    "prepare_command": "uv run --locked python -c 'from benchmarks.critpt.prepare import prepare; print(prepare())'",
+    "source_files": [
+      "benchmarks/critpt/prepare.py",
+      "resources_servers/critpt/replay.py",
+      "benchmarks/critpt/README.md"
+    ],
+    "reference_source": "CritPt-Benchmark/CritPt;70prepared problems and code_template. No reference solution in prepared rows.",
+    "runner_command": null,
+    "blocker": "Upstream scoring-only recovery command exists: uv run --locked python -m resources_servers.critpt.replay --cache-dir RUN_DIR. It requires cached candidate submissions and ARTIFICIAL_ANALYSIS_API_KEY; it does not supply correct solutions.",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "cs1k",
+    "prepare_command": null,
+    "source_files": [],
+    "reference_source": [],
+    "runner_command": null,
+    "blocker": "Exact benchmark not found in Gym or sibling reviewed/config benchmark sources. Also searched cfafe99c83c712033dc6b8105bbe7a409c592574 paths and benchmark/resource/agent contents without finding exact variant.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "deepswe",
+    "prepare_command": "uv run --locked gym eval prepare --config benchmarks/deepswe/opencode.yaml",
+    "source_files": [
+      "benchmarks/deepswe/prepare.py",
+      "resources_servers/deepswe/validate_golden.py"
+    ],
+    "reference_source": "Golden patches from the official DeepSWE tasks prepared by Gym.",
+    "runner_command": "bash scripts/run_oracles/deepswe.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "dehumanization",
+    "prepare_command": null,
+    "source_files": [],
+    "reference_source": null,
+    "runner_command": null,
+    "blocker": "No exact upstream Gym preparation/config/reference source or native oracle command established in current checkout, inspected pinned Gym tree, or reviewed EFB configurations.",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "garak",
+    "prepare_command": null,
+    "source_files": [
+      "https://gitlab-master.nvidia.com/dl/JoC/competitive_evaluation/nvidia-eval-factory-benchmarking/-/blob/cded69b480b6a72a65f3f8d646b7bd3ec19d045e/reviewed_configs/vpr/2026/nemotron-3-nano-hsg/safety_ruler.yaml"
+    ],
+    "reference_source": [
+      "Reviewed evaluator uses container gitlab-master.nvidia.com/dl/joc/competitive_evaluation/nvidia-core-evals/ci-llm/garak:dev-2026-02-20T22-27-d12de5fb and seed 42."
+    ],
+    "runner_command": null,
+    "blocker": "Non-Gym evaluator configuration identified; no Gym prepare or gold-response oracle runner established. Also searched cfafe99c83c712033dc6b8105bbe7a409c592574 paths and benchmark/resource/agent contents without finding exact variant.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "gdp_pdf",
+    "prepare_command": "uv run --locked gym eval prepare --config benchmarks/gdp_pdf/config.yaml",
+    "source_files": [
+      "benchmarks/gdp_pdf/prepare.py",
+      "benchmarks/gdp_pdf/config.yaml"
+    ],
+    "reference_source": [
+      "HuggingFace surgeai/GDP.pdf test split and pdfs files",
+      "Upstream rubric criterion slots become verifier criteria; no gold model response is prepared."
+    ],
+    "runner_command": null,
+    "blocker": "Upstream preparation exists; no dedicated upstream oracle execution command established in inspected checkout.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "gdpval_aa_v2",
+    "prepare_command": "uv run --locked python -c 'from benchmarks.gdpval.prepare import prepare; print(prepare())'",
+    "source_files": [
+      "benchmarks/gdpval/prepare.py",
+      "benchmarks/gdpval/README.md"
+    ],
+    "reference_source": "openai/gdpval has 220 tasks with prompts, input reference files, rubrics, and human expert deliverable_files/deliverable_file_urls. Current Gym preparation drops the expert deliverable fields.",
+    "runner_command": null,
+    "blocker": "Official expert deliverables could be scored separately by the native rubric judge, but that is not the GDPVal-AA-v2 Elo score. AA-style comparison requires rated reference-model rollout directories and Elo anchors; current preparation does not fetch or construct those artifacts.",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "geobias",
+    "prepare_command": null,
+    "source_files": [],
+    "reference_source": null,
+    "runner_command": null,
+    "blocker": "No exact upstream Gym preparation/config/reference source or native oracle command established in current checkout, inspected pinned Gym tree, or reviewed EFB configurations.",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "gpqa_diamond",
+    "prepare_command": "uv run --locked python -c 'from benchmarks.gpqa.prepare import prepare; print(prepare())'",
+    "source_files": [
+      "benchmarks/gpqa/prepare.py"
+    ],
+    "reference_source": "Idavidrein/gpqa, gpqa_diamond; Correct Answer becomes expected_answer.",
+    "runner_command": "bash scripts/run_oracles/gpqa_diamond.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git",
+    "submission_implementation": "scripts/run_oracles/submit_references.py (user-authorized local transport/formatting of published answers; native grading unchanged)",
+    "validation": "Full native Gym run: 198/198 verified, zero invalid/errors, mean reward 1.0; pinned dataset preparation reproduces input SHA256 ccea3299b15ecf655b1d95549b64a913ea419c6a4c6e65bfaf75b871e66304c4.",
+    "dataset_revision": "Idavidrein/gpqa@83022cefff930aea54f654c0b282e74b9eeda5c6"
+  },
+  {
+    "id": "graphwalks",
+    "prepare_command": "uv run --locked python -c 'from benchmarks.graphwalks.prepare import prepare; print(prepare())'",
+    "source_files": [
+      "benchmarks/graphwalks/prepare.py"
+    ],
+    "reference_source": "openai/graphwalks; answer_nodes becomes expected_answer.",
+    "runner_command": "bash scripts/run_oracles/graphwalks.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git",
+    "submission_implementation": "scripts/run_oracles/submit_references.py (user-authorized local transport/formatting of published answers; native grading unchanged)",
+    "validation": "Full native Gym run: 1150/1150 verified, zero invalid/errors, mean reward 1.0; input SHA256 ce35dd5df175ce344fef69ba4e0ca63350ff7c7e7c9bda31de3d04293ce49ef6.",
+    "dataset_revision": "openai/graphwalks@be6cc6ecf9b4d495b07d1ff53d2a16598e90fed7"
+  },
+  {
+    "id": "hle_text",
+    "prepare_command": "uv run --locked python -c 'from benchmarks.hle.prepare import prepare; print(prepare())'",
+    "source_files": [
+      "benchmarks/hle/prepare.py",
+      "benchmarks/hle/prepare_vision.py"
+    ],
+    "reference_source": "cais/hle test expected_answer. Prepared text2158rows/full2500rows; full embeds images.",
+    "runner_command": "bash scripts/run_oracles/hle_text.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git",
+    "submission_implementation": "scripts/run_oracles/submit_references.py (user-authorized local transport/formatting of published answers; native grading unchanged)",
+    "validation": "Native config, reference payload and shell checks passed; full evaluation not performed."
+  },
+  {
+    "id": "hle_vision",
+    "prepare_command": "uv run --locked python -c 'from benchmarks.hle.prepare_vision import prepare; print(prepare())'",
+    "source_files": [
+      "benchmarks/hle/prepare.py",
+      "benchmarks/hle/prepare_vision.py"
+    ],
+    "reference_source": "cais/hle test expected_answer. Prepared text2158rows/full2500rows; full embeds images.",
+    "runner_command": "bash scripts/run_oracles/hle_vision.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git",
+    "submission_implementation": "scripts/run_oracles/submit_references.py (user-authorized local transport/formatting of published answers; native grading unchanged)",
+    "validation": "Native config, reference payload and shell checks passed; full evaluation not performed."
+  },
+  {
+    "id": "ifbench",
+    "prepare_command": "uv run --locked gym eval prepare --config benchmarks/ifbench/config.yaml",
+    "source_files": [
+      "benchmarks/ifbench/prepare.py",
+      "benchmarks/ifbench/config.yaml"
+    ],
+    "reference_source": [
+      "https://raw.githubusercontent.com/allenai/IFBench/refs/heads/main/data/IFBench_test.jsonl",
+      "instruction_id_list and kwargs are grading constraints, not reference responses."
+    ],
+    "runner_command": null,
+    "blocker": "Upstream preparation exists; no dedicated upstream oracle execution command established in inspected checkout.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "kernelbench_hard",
+    "prepare_command": null,
+    "source_files": [
+      "https://gitlab-master.nvidia.com/dl/JoC/competitive_evaluation/nvidia-eval-factory-benchmarking/-/blob/cded69b480b6a72a65f3f8d646b7bd3ec19d045e/reviewed_configs/vpr/2026/nemotron-3-ultra/nemotron-ultra-v3/ultra_v3_gym_kernelbench.yaml"
+    ],
+    "reference_source": [],
+    "runner_command": null,
+    "blocker": "Exact hard variant not established. Sibling config pins Gym kernelbench_v0dot1 commit 54185e5e0d2dd65859f6c002cd6ba3d987ce49da (200 problems); absent from this checkout. Do not substitute v0.1 for hard. Also searched cfafe99c83c712033dc6b8105bbe7a409c592574 paths and benchmark/resource/agent contents without finding exact variant.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "lcb_v6",
+    "prepare_command": "uv run --locked gym eval prepare --config benchmarks/livecodebench/v6_2408_2505/config.yaml",
+    "source_files": [
+      "benchmarks/livecodebench/v6_2408_2505/prepare.py",
+      "benchmarks/livecodebench/v6_2408_2505/config.yaml",
+      "benchmarks/livecodebench/prepare_utils.py"
+    ],
+    "reference_source": [
+      "livecodebench/code_generation_lite release_v6 test revision refs/pr/7, dates 2024-08-01 <= date < 2025-06-01",
+      "Decoded public/private test inputs and expected outputs in verifier_metadata.unit_tests; no reference solution code prepared."
+    ],
+    "runner_command": null,
+    "blocker": "Upstream preparation exists; no dedicated upstream oracle execution command established in inspected checkout.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "lmarena_v2",
+    "prepare_command": "bash scripts/run_oracles/lmarena_v2.sh --prepare-only",
+    "source_files": [
+      "benchmarks/lmarena_v2/prepare.py",
+      "benchmarks/lmarena_v2/config.yaml",
+      "resources_servers/arena/app.py",
+      "resources_servers/arena/configs/lmarena_v2.yaml"
+    ],
+    "reference_source": [
+      "NVIDIA GitLab Model Registry lmarena_v2 version 0.0.1 artifact lmarena_v2_validation.jsonl",
+      "Arena requires baseline_answer for pairwise comparisons; this is a baseline model response, not known-correct solution."
+    ],
+    "runner_command": null,
+    "blocker": "Upstream preparation exists; no dedicated upstream oracle execution command established in inspected checkout.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git",
+    "registry_uri": "https://gitlab-master.nvidia.com/api/v4/projects/191584/ml/mlflow",
+    "validation": "Current Gym prepare-only command completed with 1,475 registry rows; no oracle runner or score."
+  },
+  {
+    "id": "lmarena_v3",
+    "prepare_command": "bash scripts/run_oracles/lmarena_v3.sh --prepare-only",
+    "source_files": [
+      "benchmarks/lmarena_v3/prepare.py",
+      "resources_servers/arena/scripts/create_replay_validation_from_arena_eval.py",
+      "resources_servers/arena/README.md"
+    ],
+    "reference_source": "GitLab project191584 model lmarena_v3 v0.0.1;3713prepared rows with baseline_answer,other_answer,winner. Access verified using existing GITLAB_TOKEN.",
+    "runner_command": null,
+    "blocker": "The registry data contains baseline model responses and human pairwise verdicts. Its native Arena evaluation still requires a generated policy response and judge; no official model-free oracle runner was found.",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git",
+    "registry_uri": "https://gitlab-master.nvidia.com/api/v4/projects/191584/ml/mlflow",
+    "validation": "Current Gym prepare-only command completed with 3,713 registry rows; no oracle runner or score."
+  },
+  {
+    "id": "mathvision",
+    "prepare_command": "uv run --locked python benchmarks/mathvision/prepare.py",
+    "prepare_cwd": "Current Gym repository root",
+    "source_repo": "https://gitlab-master.nvidia.com/dl/nemo/gym.git",
+    "source_commit": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_files": [
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/mathvision/prepare.py",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/mathvision/config.yaml",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:resources_servers/vlm_eval_kit/prepare_data.py",
+      "../nvidia-eval-factory-benchmarking/configs/benchmarks/mathvision/bench.yaml"
+    ],
+    "reference_source": "MathVision full test: answer, choices",
+    "runner_command": "bash scripts/run_oracles/mathvision.sh [positive-limit]",
+    "blocker": "One-row native Gym reference submission scored 1.0; full run pending. The configured extraction judge returned HTTP 401 on nonexact requests."
+  },
+  {
+    "id": "mathvista",
+    "prepare_command": "uv run --locked python benchmarks/mathvista/prepare.py",
+    "prepare_cwd": "Current Gym repository root",
+    "source_repo": "https://gitlab-master.nvidia.com/dl/nemo/gym.git",
+    "source_commit": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_files": [
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/mathvista/prepare.py",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/mathvista/config.yaml",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:resources_servers/vlm_eval_kit/prepare_data.py",
+      "../nvidia-eval-factory-benchmarking/configs/benchmarks/mathvista-mini/bench.yaml"
+    ],
+    "reference_source": "MathVista_MINI only: answer, answer_type, answer_option, choices; not full MathVista",
+    "runner_command": "bash scripts/run_oracles/mathvista.sh [positive-limit]",
+    "blocker": "One-row native Gym reference submission scored 1.0; full MathVista_MINI run pending. Official precheck accepts 963/1000 published answers; 37 require the extraction judge, whose configured endpoint returned HTTP 401. Full MathVista variant remains unestablished."
+  },
+  {
+    "id": "mmlongbench_doc",
+    "prepare_command": "uv run --locked python benchmarks/mmlongbench_doc/prepare.py",
+    "prepare_cwd": "Current Gym repository root",
+    "source_repo": "https://gitlab-master.nvidia.com/dl/nemo/gym.git",
+    "source_commit": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_files": [
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/mmlongbench_doc/prepare.py",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/mmlongbench_doc/config.yaml",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:resources_servers/vlm_eval_kit/prepare_data.py",
+      "../nvidia-eval-factory-benchmarking/configs/benchmarks/mmlongbench-doc/bench.yaml"
+    ],
+    "reference_source": "MMLongBench_DOC: answer, answer_format; official preparation renders up to100 pages",
+    "runner_command": "bash scripts/run_oracles/mmlongbench_doc.sh [positive-limit]",
+    "blocker": "All 1091 published-answer rows prepared. The native runner stopped before Gym because the configured extraction judge returned HTTP 401 on a direct preflight; no score was produced."
+  },
+  {
+    "id": "mmlu_prox",
+    "prepare_command": "uv run --locked python -c 'from benchmarks.mmlu_prox.prepare import prepare; print(prepare())'",
+    "source_files": [
+      "benchmarks/mmlu_prox/prepare.py"
+    ],
+    "reference_source": "li-lab/MMLU-ProX test at 8e6106a6c6ce1c5027e66cc338143cf997b2aa09; expected_answer field on 341011 prepared rows.",
+    "runner_command": "bash scripts/run_oracles/mmlu_prox.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git",
+    "submission_implementation": "scripts/run_oracles/submit_references.py (user-authorized local transport/formatting of published answers; native grading unchanged)",
+    "validation": "Full native Gym run: 341011/341011 published references verified, mean reward 1.0, zero invalid/errors, complete true. Prepared JSONL SHA256 642be743fea621522453dd0adcfcf8794b67df5e77411456961a0e991b9c362c. Laptop used RAY_ENABLE_UV_RUN_RUNTIME_ENV=0."
+  },
+  {
+    "id": "ocr_reasoning",
+    "prepare_command": "uv run --locked python benchmarks/ocr_reasoning/prepare.py",
+    "prepare_cwd": "Current Gym repository root",
+    "source_repo": "https://gitlab-master.nvidia.com/dl/nemo/gym.git",
+    "source_commit": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_files": [
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/ocr_reasoning/prepare.py",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/ocr_reasoning/config.yaml",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:resources_servers/vlm_eval_kit/prepare_data.py",
+      "../nvidia-eval-factory-benchmarking/configs/benchmarks/ocr-reasoning/bench.yaml"
+    ],
+    "reference_source": "OCR_Reasoning: answer, reasoning, question_type, answer_type, choices, answer_option",
+    "runner_command": "bash scripts/run_oracles/ocr_reasoning.sh [positive-limit]",
+    "blocker": "Pinned native Gym runner wired; full dataset preparation and live scoring pending. The two-stage judge is required and the configured endpoint returned HTTP 401 on prior probes."
+  },
+  {
+    "id": "ocrbench_v2_cn",
+    "prepare_command": "uv run --locked python benchmarks/ocrbench_v2/prepare_cn.py",
+    "prepare_cwd": "Current Gym repository root",
+    "source_repo": "https://gitlab-master.nvidia.com/dl/nemo/gym.git",
+    "source_commit": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_files": [
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/ocrbench_v2/prepare.py",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/ocrbench_v2/config.yaml",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:resources_servers/vlm_eval_kit/prepare_data.py",
+      "../nvidia-eval-factory-benchmarking/configs/benchmarks/ocrbench-v2/bench.yaml"
+    ],
+    "reference_source": "Official combined OCRBench_v2 dataset filtered to all 2600 CN rows; full published answer list retained, first literal reference submitted. Pinned scorer parses all CN reference categories, including 400/400 key-information extraction rows.",
+    "runner_command": "bash scripts/run_oracles/ocrbench_v2_cn.sh [positive-limit]",
+    "blocker": "All 2600 public Chinese rows completed native Gym verification with zero invalid/errors; row mean 0.9805434181272555 and official five-group Chinese Overall Score 0.9846662009291768."
+  },
+  {
+    "id": "ocrbench_v2_en",
+    "prepare_command": "uv run --locked python benchmarks/ocrbench_v2/prepare.py",
+    "prepare_cwd": "Current Gym repository root",
+    "source_repo": "https://gitlab-master.nvidia.com/dl/nemo/gym.git",
+    "source_commit": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_files": [
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/ocrbench_v2/prepare.py",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/ocrbench_v2/config.yaml",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:resources_servers/vlm_eval_kit/prepare_data.py",
+      "../nvidia-eval-factory-benchmarking/configs/benchmarks/ocrbench-v2/bench.yaml"
+    ],
+    "reference_source": "Official combined OCRBench_v2 EN dataset retains all 7400 rows; prepare_reference_subset.py selects the exact 6000 rows in 16 categories whose first published annotation is a complete scorer-readable response, preserving each full answer list.",
+    "runner_command": "bash scripts/run_oracles/ocrbench_v2_en.sh [positive-limit]",
+    "blocker": "The 6000-row reference subset completed native Gym verification: 6000 valid, zero invalid/errors, row-weighted mean reward 0.9786247532706343, and pinned five-group subset mean 0.9827454685516173. The excluded 1400 EN rows are VQA with position (300), key information extraction (400), key information mapping (300), text grounding (200), and text spotting (200); no full-benchmark EN oracle score is claimed."
+  },
+  {
+    "id": "osworld",
+    "prepare_command": "uv run --locked python -c 'from benchmarks.osworld.prepare import prepare; print(prepare())'",
+    "source_files": [
+      "benchmarks/osworld/prepare.py",
+      "benchmarks/osworld/README.md",
+      "benchmarks/osworld/tools/convert_osworld_tasks.py",
+      "responses_api_agents/osworld_agent/requirements.txt"
+    ],
+    "reference_source": "Default preparation only5examples; full task JSONs include expected evaluator states/files. Pinned OSWorld f32ab2b74e3ea66e6a8eb0d87876a12ce93904d5.",
+    "runner_command": null,
+    "blocker": "Full OSWorld source audit648code/doc files found task setup/evaluator replay helpers and human manual examination, no automated known-correct solution runner. Default prepare is not full benchmark download. Available osworld-kvm pool addresses infrastructure only.",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "pinchbench",
+    "prepare_command": "uv run --locked gym eval prepare --config benchmarks/pinchbench/config.yaml",
+    "source_files": [
+      "benchmarks/pinchbench/prepare.py",
+      "benchmarks/pinchbench/config.yaml"
+    ],
+    "reference_source": [
+      "https://github.com/pinchbench/skill tag v2.0.0; clones all 147 manifest tasks",
+      "Prepared rows hold prompt and verifier_metadata.task_id; no solution actions prepared."
+    ],
+    "runner_command": null,
+    "blocker": "Upstream preparation exists; no dedicated upstream oracle execution command established in inspected checkout.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "rtvlm",
+    "prepare_command": null,
+    "source_files": [],
+    "reference_source": null,
+    "runner_command": null,
+    "blocker": "No exact upstream Gym preparation/config/reference source or native oracle command established in current checkout, inspected pinned Gym tree, or reviewed EFB configurations.",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "scicode",
+    "prepare_command": "uv run --locked python -c 'from benchmarks.scicode.prepare import prepare; print(prepare())'",
+    "source_files": [
+      "benchmarks/scicode/prepare.py",
+      "benchmarks/scicode/README.md",
+      "resources_servers/scicode/README.md"
+    ],
+    "reference_source": "SciCode1/SciCode test65problems,291substeps; ground_truth_code empty for ALL291 in prepared data. Separately downloaded official numeric test_data.h5 SHA25648b0272a88b17dbd29777c217e1b4fb2b019b92e11cc2add847409db9541b890.",
+    "runner_command": null,
+    "blocker": "Numeric expected outputs are present but not executable reference solutions. No native oracle runner established.",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "screenspot_pro",
+    "prepare_command": "uv run --locked python benchmarks/screenspot_pro/prepare.py",
+    "prepare_cwd": "Checkout of https://gitlab-master.nvidia.com/dl/nemo/gym.git at cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_repo": "https://gitlab-master.nvidia.com/dl/nemo/gym.git",
+    "source_commit": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_files": [
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/screenspot_pro/prepare.py",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/screenspot_pro/config.yaml",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:resources_servers/vlm_eval_kit/prepare_data.py",
+      "../nvidia-eval-factory-benchmarking/configs/benchmarks/screenspot-pro/bench.yaml"
+    ],
+    "reference_source": "All six ScreenSpot_Pro splits: answer=bbox normalized to [0,1]; source bbox retained",
+    "runner_command": null,
+    "blocker": "Native preparation exists in pinned internal Gym commit, absent current main. No native oracle/replay command found; prepare preserves references but does not submit them as model responses."
+  },
+  {
+    "id": "swebench_multilingual",
+    "prepare_command": "uv run --locked gym eval prepare --config benchmarks/swebench/multilingual/opencode.yaml",
+    "source_files": [
+      "benchmarks/swebench/multilingual/prepare.py",
+      "resources_servers/swebench/apply_golden_patch.py"
+    ],
+    "reference_source": "Golden patches from the official SWE-bench Multilingual tasks prepared by Gym.",
+    "runner_command": "bash scripts/run_oracles/swebench_multilingual.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "swebench_pro",
+    "prepare_command": "uv run --locked gym eval prepare --config benchmarks/swebench/pro/opencode.yaml",
+    "source_files": [
+      "benchmarks/swebench/pro/prepare.py",
+      "resources_servers/swebench_pro/apply_golden_patch.py"
+    ],
+    "reference_source": "Golden patches from the official SWE-bench Pro tasks prepared by Gym.",
+    "runner_command": "bash scripts/run_oracles/swebench_pro.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "swebench_verified",
+    "prepare_command": "uv run --locked gym eval prepare --config benchmarks/swebench/verified/opencode.yaml",
+    "source_files": [
+      "benchmarks/swebench/verified/prepare.py",
+      "resources_servers/swebench/apply_golden_patch.py"
+    ],
+    "reference_source": "Golden patches from the official SWE-bench Verified tasks prepared by Gym.",
+    "runner_command": "bash scripts/run_oracles/swebench_verified.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "tau3_average",
+    "prepare_command": "uv run --locked python benchmarks/tau2/prepare.py tau2 && uv run --locked python benchmarks/tau2/prepare.py banking_knowledge --retrieval-config bm25_grep",
+    "source_files": [
+      "benchmarks/tau2/prepare.py",
+      "benchmarks/nemotron_3.5_super/export_to_csv.py"
+    ],
+    "reference_source": "Current Gym Tau3-Average is the equal mean of Tau2 airline/retail/telecom and Banking bm25_grep rewards; native preparation now covers all four domains.",
+    "runner_command": null,
+    "blocker": "No native deterministic runner to execute published reference actions as a Gym candidate trajectory. llm_agent_gt generates model responses; it is not an oracle replay.",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "tau3_bank",
+    "prepare_command": "uv run --locked python -c 'from benchmarks.tau2.prepare_utils.banking_bm25_grep import prepare; print(prepare())'",
+    "source_files": [
+      "benchmarks/tau2/prepare_utils/__init__.py",
+      "benchmarks/tau2/README.md",
+      "responses_api_agents/tau2/app.py"
+    ],
+    "reference_source": "bxyu-nvidia/tau2-bench data branch resolvedce4013b0afe03c873488878b72851414f92f458b. All97prepared banking tasks have task.evaluation_criteria.actions with requestor,name,arguments.",
+    "runner_command": null,
+    "blocker": "Expected actions exist. Native Gym agent calls run_single_task for model-driven execution; no exposed gold-action replay path established. Preparation strips NL_ASSERTION from task102; scores differ from AA scope.",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "tb21",
+    "prepare_command": "uv run --locked gym eval prepare --config benchmarks/terminal_bench_2_1/terminus_2.yaml",
+    "source_files": [
+      "benchmarks/terminal_bench_2_1/prepare.py",
+      "resources_servers/terminal_bench_2_1/apply_golden_patch.py"
+    ],
+    "reference_source": "Task solution packages prepared by the official Terminal-Bench 2.1 Gym integration.",
+    "runner_command": "bash scripts/run_oracles/tb21.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "tb21_3h",
+    "prepare_command": "uv run --locked gym eval prepare --config benchmarks/terminal_bench_2_1/terminus_2.yaml",
+    "source_files": [
+      "benchmarks/terminal_bench_2_1/prepare.py",
+      "resources_servers/terminal_bench_2_1/apply_golden_patch.py"
+    ],
+    "reference_source": "The same official Terminal-Bench 2.1 task solutions, checked with the 3-hour timeout profile.",
+    "runner_command": "bash scripts/run_oracles/tb21_3h.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "tb4",
+    "prepare_command": "uv run --locked python benchmarks/terminal_bench_4/prepare.py",
+    "source_files": [
+      "benchmarks/terminal_bench_4/prepare.py",
+      "benchmarks/terminal_bench_4/manifest.json",
+      "resources_servers/terminal_bench_4/task.py"
+    ],
+    "reference_source": "Pinned Harbor dataset terminal-bench/terminal-bench@sha256:39d9f44b40420cde8fdcc087579c0d72a7e14fa3656d603c3f0d22fb35e27732. All66 downloaded packages have matching content hashes and official solution files under results/task-packages. Gym PackageLoader downloads packages during resource preparation; benchmark prepare.py alone writes identities.",
+    "runner_command": "bash scripts/run_oracles/tb4.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git",
+    "download_command": "harbor download terminal-bench/terminal-bench@sha256:39d9f44b40420cde8fdcc087579c0d72a7e14fa3656d603c3f0d22fb35e27732 --cache --output-dir results/task-packages",
+    "download_source_repo": "https://github.com/laude-institute/harbor.git",
+    "download_source_commit": "cdb76bae6dc88d5bca1c8f0754bbba300d6574b4",
+    "submission_implementation": "Local resources_servers/terminal_bench_4/apply_golden_patch.py and golden_patch.py execute published solution/solve.sh via the current Gym resource lifecycle and unchanged native verifier.",
+    "validation": "All 66 official package hashes match the manifest. Combined native Gym results: 63 completed, 61 reward 1, 2 reward 0, and 3 H100 sandbox-creation timeouts before the official solutions ran. No valid 66-task score.",
+    "smoke_results": "results/terminal_bench_4_oracle_smoke/results.jsonl"
+  },
+  {
+    "id": "videomme_v2",
+    "prepare_command": "uv run --locked python benchmarks/videomme2/prepare.py",
+    "prepare_cwd": "Current Gym repository root",
+    "source_repo": "https://gitlab-master.nvidia.com/dl/nemo/gym.git",
+    "source_commit": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_files": [
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/videomme2/prepare.py",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/videomme2/config.yaml",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:resources_servers/vlm_eval_kit/prepare_data.py",
+      "../nvidia-eval-factory-benchmarking/configs/benchmarks/videomme-v2/bench.yaml"
+    ],
+    "reference_source": "MME-Benchmarks/Video-MME-v2 at 6e4bebb03202e1ddbf3d37703e560e51c5aa2d64: published answer option plus official zero-padded video/group metadata",
+    "runner_command": "bash scripts/run_oracles/videomme_v2.sh [positive-limit-multiple-of-4]",
+    "blocker": null,
+    "validation": "Full native Gym run: 3200/3200 published references verified, mean reward 1.0, zero invalid/errors, complete true. Prepared JSONL SHA256 87b37ff7ede05897f7a4ae75a7c4b1cd4dc523b2c20a25d7208cdf6de18ee0fb. Scored JSONL SHA256 b34784495d2c5516db69b41e5c1bbf63e3128ffc67a8b869b3025dca11c015eb. Pinned official 800-group rating total 100.0 in results/videomme2_oracle_group_rating.json."
+  },
+  {
+    "id": "vlguard",
+    "prepare_command": null,
+    "source_files": [],
+    "reference_source": null,
+    "runner_command": null,
+    "blocker": "No exact upstream Gym preparation/config/reference source or native oracle command established in current checkout, inspected pinned Gym tree, or reviewed EFB configurations.",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "vstar",
+    "prepare_command": "uv run --locked python benchmarks/vstar/prepare.py",
+    "prepare_cwd": "Current Gym repository root",
+    "source_repo": "https://gitlab-master.nvidia.com/dl/nemo/gym.git",
+    "source_commit": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_files": [
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/vstar/prepare.py",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:benchmarks/vstar/config.yaml",
+      "cfafe99c83c712033dc6b8105bbe7a409c592574:resources_servers/vlm_eval_kit/prepare_data.py",
+      "../nvidia-eval-factory-benchmarking/configs/benchmarks/vstar-without-ci/bench.yaml"
+    ],
+    "reference_source": "VStarBench (without CI): answer option",
+    "runner_command": "bash scripts/run_oracles/vstar.sh [positive-limit]",
+    "blocker": null
+  },
+  {
+    "id": "webvoyager",
+    "prepare_command": null,
+    "source_files": [
+      "d0163283e3a4ab6bc86213670834b0cce57e8cf0:benchmarks/webvoyager/README.md",
+      "d0163283e3a4ab6bc86213670834b0cce57e8cf0:benchmarks/webvoyager/prepare.py",
+      "d0163283e3a4ab6bc86213670834b0cce57e8cf0:resources_servers/webvoyager_judge/app.py",
+      "https://github.com/MinorJerry/WebVoyager/blob/main/data/reference_answer.json"
+    ],
+    "reference_source": "The original authors publish brief reference_answer.json entries matching all 552 Gym task IDs: 124 golden and 428 possible answers, but no complete executable browser trajectories.",
+    "runner_command": null,
+    "blocker": "An exact 552-task Gym integration exists at Gym commit d0163283e3a4ab6bc86213670834b0cce57e8cf0, absent current main. Its judge requires final browser screenshots as well as an answer; answer-only reference replay returns missing_judge_evidence. Neither the authors nor the Gym branch publish complete executable browser trajectories; documented runs use policy models.",
+    "source_commit": "d0163283e3a4ab6bc86213670834b0cce57e8cf0",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  },
+  {
+    "id": "wmt24pp",
+    "prepare_command": "uv run --locked python -c 'from benchmarks.wmt24pp.prepare import prepare; print(prepare(prefetch_comet=False))'",
+    "source_files": [
+      "benchmarks/wmt24pp/prepare.py",
+      "benchmarks/wmt24pp/README.md"
+    ],
+    "reference_source": "google/wmt24pp target becomes translation;52800prepared rows.",
+    "runner_command": "bash scripts/run_oracles/wmt24pp.sh",
+    "blocker": null,
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git",
+    "submission_implementation": "scripts/run_oracles/submit_references.py (user-authorized local transport/formatting of published answers; native grading unchanged)",
+    "validation": "Native config, reference payload and shell checks passed; full evaluation not performed.",
+    "runtime_requirement": "Native COMET aggregation requires configured Ray extra_gpu workers; GPU evaluation not run."
+  },
+  {
+    "id": "xstest",
+    "prepare_command": "uv run --locked gym eval prepare --config benchmarks/xstest/config.yaml",
+    "source_files": [
+      "benchmarks/xstest/prepare.py",
+      "benchmarks/xstest/config.yaml"
+    ],
+    "reference_source": [
+      "https://raw.githubusercontent.com/paul-rottger/xstest/refs/heads/main/xstest_prompts.csv",
+      "Prepared verifier_metadata.label and type are safety labels; no canonical response prepared."
+    ],
+    "runner_command": null,
+    "blocker": "Upstream preparation exists; no dedicated upstream oracle execution command established in inspected checkout.",
+    "additional_tree_audited": "cfafe99c83c712033dc6b8105bbe7a409c592574",
+    "source_commit": "1c8261080bdc881b3e9b7f870e6418f160516991",
+    "source_repo": "https://github.com/NVIDIA-NeMo/Gym.git"
+  }
+]

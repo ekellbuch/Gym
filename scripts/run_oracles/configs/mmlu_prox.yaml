@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Keep native benchmark grading while removing the unused generation agent.
+config_paths:
+  - benchmarks/mmlu_prox/config.yaml
+mcqa_simple_agent: null
+mmlu_prox_mcqa_simple_agent: null

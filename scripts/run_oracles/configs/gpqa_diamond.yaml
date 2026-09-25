@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Native GPQA grading without the unused generation agent.
+config_paths:
+  - benchmarks/gpqa/config.yaml
+mcqa_simple_agent: null
+gpqa_mcqa_simple_agent: null

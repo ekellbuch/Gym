@@ -40,6 +40,9 @@ DATA_DIR = BENCHMARK_DIR / "data"
 OUTPUT_FPATH = DATA_DIR / "mmlu_prox_benchmark.jsonl"
 LANG_LIBS_COMMIT = "f4d4b3de3ee6741a7151a9fe74945ee515262f4c"  # pragma: allowlist secret
 LANG_LIBS_SHA256 = "582a892b4e8419c16384552b369d7ba828418c57768ccdd82d61172116b3da55"  # pragma: allowlist secret
+DATASET_REVISION = "8e6106a6c6ce1c5027e66cc338143cf997b2aa09"
+EXPECTED_ROWS_PER_LANGUAGE = 11759
+EXPECTED_TOTAL_ROWS = 341011
 LANG_LIBS_URL = (
     "https://raw.githubusercontent.com/EleutherAI/lm-evaluation-harness/"
     f"{LANG_LIBS_COMMIT}/lm_eval/tasks/mmlu_prox/lang_libs.py"
@@ -195,13 +198,21 @@ def prepare(languages: list[str] = DEFAULT_LANGUAGES) -> Path:
         with temp_path.open("w") as output:
             for language in languages:
                 print(f"Downloading MMLU-ProX [{language}] from HuggingFace...")
-                ds = load_dataset("li-lab/MMLU-ProX", language, split="test", token=hf_token)
+                ds = load_dataset(
+                    "li-lab/MMLU-ProX", language, split="test", token=hf_token, revision=DATASET_REVISION
+                )
+                if len(ds) != EXPECTED_ROWS_PER_LANGUAGE:
+                    raise ValueError(
+                        f"Pinned MMLU-ProX {language} has {len(ds)} rows, expected {EXPECTED_ROWS_PER_LANGUAGE}"
+                    )
                 for example in ds:
                     row = _format_entry(example, language, lang_libs, lang_subjects)
                     output.write(json.dumps(row) + "\n")
                 row_count += len(ds)
                 print(f"  {len(ds)} examples loaded for language '{language}'")
 
+        if languages == DEFAULT_LANGUAGES and row_count != EXPECTED_TOTAL_ROWS:
+            raise ValueError(f"Pinned MMLU-ProX has {row_count} rows, expected {EXPECTED_TOTAL_ROWS}")
         temp_path.replace(OUTPUT_FPATH)
 
     print(f"Wrote {row_count} total problems to {OUTPUT_FPATH}")

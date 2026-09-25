@@ -1,0 +1,41 @@
+# CharXiv reasoning (RQ, mcore CharXiv_reasoning_val) via the vlm_eval_kit resources
+# server (VLMEvalKitMcore wrapped as a library). Judge-scored: each row carries a
+# per-row grading_query for the pinned opus-4-7 judge. The official auxeval
+# scores an exact published answer before making a judge call. FEP-1143 wave 2.
+# Nano 3 Omni paper target (arXiv 2604.24954): RQ 63.6.
+config_paths:
+  - resources_servers/vlm_eval_kit/configs/vlm_eval_kit.yaml
+
+charxiv_rq_benchmark_resources_server:
+  _inherit_from: vlm_eval_kit_resources_server
+  resources_servers:
+    vlm_eval_kit:
+      # CharXiv RQ's verified numbers (Nano Omni cluster 62.7 / proxy 63.1 vs paper
+      # 63.6) were produced against the mcore fork — the authoritative source for the
+      # P00 Omni benchmarks.
+      charxiv_source_path: results/oracle-upstream/VLMEvalKitMcore-6e98cbf20bd88a6469a1a298f67ec266196a4bbf
+      # Mcore commit 6e98cbf contains the exact-match precheck, judge spelling
+      # compatibility, and the extended-prompt/image-resize hooks used at prepare time.
+      # !108 opus-4-7 judge. RESOLVED inference-api id — Gym passes judge_model straight to
+      # OpenAIWrapper and does NOT run build_judge's alias map. judge_api_key injected at launch:
+      #   ++charxiv_rq_benchmark_resources_server.resources_servers.vlm_eval_kit.judge_api_key=$INFERENCE_API_KEY
+      judge_model: aws/anthropic/bedrock-claude-opus-4-7
+      # CharXiv !108 eval optimizations, applied at prepare time.
+      extended_user_prompt: interpolation
+      image_resize_scale: 2.0
+      image_resize_resample: lanczos
+      image_resize_jpeg_quality: 95
+
+charxiv_rq_benchmark_simple_agent:
+  _inherit_from: vlm_eval_kit_simple_agent
+  responses_api_agents:
+    simple_agent:
+      resources_server:
+        name: charxiv_rq_benchmark_resources_server
+      datasets:
+      - name: charxiv_rq
+        type: benchmark
+        jsonl_fpath: benchmarks/charxiv_rq/data/charxiv_rq_benchmark.jsonl
+        prompt_config: null
+        prepare_script: benchmarks/charxiv_rq/prepare.py
+        num_repeats: 1

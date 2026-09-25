@@ -6,6 +6,17 @@ vlm_eval_kit_resources_server:
       verified: false
       description: Run all supported VLMEvalKit benchmarks.
       value: Measure VLM capabilities
+      # Opt-in CharXiv source and judge; unset for the original OCRBench/MMBench paths.
+      charxiv_source_path: null
+      mcore_source_path: null
+      judge_model: ''
+      judge_base_url: https://inference-api.nvidia.com/v1/chat/completions
+      judge_api_key: ''
+      judge_max_concurrency: 8
+      extended_user_prompt: none
+      image_resize_scale: 1.0
+      image_resize_resample: lanczos
+      image_resize_jpeg_quality: 95
 vlm_eval_kit_simple_agent:
   responses_api_agents:
     simple_agent:

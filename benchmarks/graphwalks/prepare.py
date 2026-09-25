@@ -60,6 +60,8 @@ DEFAULT_OUTPUT_FPATH = DATA_DIR / "graphwalks_benchmark.jsonl"
 
 DEFAULT_TOKENIZER_NAME = "o200k_base"
 DEFAULT_MAX_CONTEXT_TOKENS: Optional[int] = None  # no filter by default
+DATASET_REVISION = "be6cc6ecf9b4d495b07d1ff53d2a16598e90fed7"
+EXPECTED_SOURCE_ROWS = 1150
 
 _BFS_PATTERN = re.compile(r"Perform a BFS from node (\S+) with depth (\d+)")
 _BFS_REPLACEMENT = (
@@ -93,7 +95,9 @@ def prepare(
     output_fpath = Path(output_fpath)
     output_fpath.parent.mkdir(parents=True, exist_ok=True)
 
-    dataset = load_dataset("openai/graphwalks", split="train")
+    dataset = load_dataset("openai/graphwalks", split="train", revision=DATASET_REVISION)
+    if len(dataset) != EXPECTED_SOURCE_ROWS:
+        raise ValueError(f"Pinned GraphWalks source has {len(dataset)} rows, expected {EXPECTED_SOURCE_ROWS}")
     count_tokens = _build_token_counter(tokenizer_name)
 
     kept = 0

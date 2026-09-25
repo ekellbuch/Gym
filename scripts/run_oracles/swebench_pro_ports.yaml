@@ -1,0 +1,5 @@
+# Isolate SWE-bench Pro's Gym process from other oracle runs on this host.
+head_server:
+  port: 11131
+port_range_low: 21131
+port_range_high: 21150

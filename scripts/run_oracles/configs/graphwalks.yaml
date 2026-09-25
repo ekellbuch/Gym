@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Native GraphWalks F1 scorer, with official references submitted directly.
+config_paths:
+  - benchmarks/graphwalks/config.yaml
+graphwalks_simple_agent: null
+graphwalks_benchmark_simple_agent: null

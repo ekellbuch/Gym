@@ -21,6 +21,7 @@ from nemo_gym.base_resources_server import (
     ReverifyMode,
     SimpleResourcesServer,
 )
+from nemo_gym.openai_utils import NeMoGymResponse
 from nemo_gym.rollout_correlation import rollout_context
 from nemo_gym.server_utils import (
     SESSION_ID_KEY,
@@ -28,6 +29,7 @@ from nemo_gym.server_utils import (
 )
 from resources_servers.terminal_bench_4 import lifecycle
 from resources_servers.terminal_bench_4.environment import EnvironmentConfig
+from resources_servers.terminal_bench_4.golden_patch import run_solution
 from resources_servers.terminal_bench_4.lifecycle import NATIVE_VERSION, Session
 from resources_servers.terminal_bench_4.models import (
     AgentTermination,
@@ -52,6 +54,7 @@ class TerminalBench4Config(BaseResourcesServerConfig):
     shutdown_timeout_sec: float = Field(default=30, ge=0)
     seeded_session_timeout_sec: float = Field(default=10 * 60 * 60, gt=0)
     task_download_dir: Path | None = None
+    is_verifying_golden_patch: bool = False
 
 
 def atomic_json(path, value):
@@ -72,11 +75,13 @@ class TerminalBench4ResourcesServer(SimpleResourcesServer):
         self._slots = asyncio.Semaphore(self.config.max_concurrent_sessions)
         self._loader = PackageLoader(self.config.task_download_dir)
         self._closing = False
+        self._oracle_tasks: dict[str, asyncio.Task] = {}
         self.config.artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     def setup_webserver(self):
         app = super().setup_webserver()
         app.post("/seed_session")(self.seed_session)
+        app.post("/oracle")(self.oracle)
         parent_lifespan = app.router.lifespan_context
 
         @asynccontextmanager
@@ -86,6 +91,10 @@ class TerminalBench4ResourcesServer(SimpleResourcesServer):
                     yield state
             finally:
                 self._closing = True
+                for task in self._oracle_tasks.values():
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*self._oracle_tasks.values(), return_exceptions=True)
                 await lifecycle.shutdown(list(self._sessions.values()), self.config.shutdown_timeout_sec)
 
         app.router.lifespan_context = lifespan
@@ -352,6 +361,55 @@ class TerminalBench4ResourcesServer(SimpleResourcesServer):
             session.finalization = asyncio.create_task(self._finalize_session(session))
         await asyncio.shield(session.finalization)
         return session.verified_response
+
+    async def oracle(self, request: Request, body: TerminalBench4RunRequest) -> SandboxedVerifyResponse:
+        """Execute the published solution once, then use the ordinary verifier and cleanup."""
+        if not self.config.is_verifying_golden_patch:
+            raise HTTPException(409, "Enable is_verifying_golden_patch to execute official solutions")
+        seed = await self.seed_session(request, body)
+        if seed.verified_response is not None:
+            return seed.verified_response
+        session = self._session(request, seed.session_id)
+        # Retried HTTP requests share one execution; a solution must never run twice.
+        if seed.session_id not in self._oracle_tasks:
+            self._oracle_tasks[seed.session_id] = asyncio.create_task(self._execute_oracle(request, session))
+        return await asyncio.shield(self._oracle_tasks[seed.session_id])
+
+    async def _execute_oracle(self, request: Request, session: Session) -> SandboxedVerifyResponse:
+        started = False
+        termination = session.seed_response.termination
+        try:
+            if termination is None:
+                termination = await run_solution(session)
+                started = True
+        except asyncio.CancelledError:
+            session.termination = AgentTermination(reason="cancelled", detail="Oracle server is shutting down")
+            await lifecycle.cleanup(session)
+            raise
+        except Exception as exc:
+            lifecycle.exception(session, exc)
+            termination = AgentTermination(reason="infrastructure_error", detail=str(exc))
+            started = "agent_execution" in session.result
+        response = NeMoGymResponse(
+            id="official-solution",
+            created_at=0,
+            model="official-solution",
+            object="response",
+            output=[],
+            parallel_tool_calls=False,
+            tool_choice="auto",
+            tools=[],
+        )
+        return await self.verify(
+            request,
+            SandboxedVerifyRequest(
+                responses_create_params=session.request.responses_create_params,
+                response=response,
+                session_id=session.session_id,
+                termination=termination,
+                agent_started=started,
+            ),
+        )
 
 
 if __name__ == "__main__":

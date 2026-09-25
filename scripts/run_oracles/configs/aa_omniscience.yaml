@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Native Gym verifier and judge prompt; submit official references without policy generation.
+config_paths:
+  - benchmarks/omniscience/config.yaml
+
+omniscience_simple_agent: null
+omniscience_omniscience_simple_agent: null
+
+# Endpoint/model pairing from nvidia-eval-factory-benchmarking:
+# configs/benchmarks/aa-omniscience/bench.yaml. Keep its judge request settings.
+genrm_model:
+  responses_api_models:
+    openai_model:
+      openai_base_url: https://inference-api.nvidia.com/v1
+      openai_api_key: ${oc.env:JUDGE_API_KEY,null}
+      openai_model: openai/openai/gpt-5.6-luna
+      max_concurrent_requests: 32
+      extra_body:
+        reasoning_effort: medium
+
+omniscience_omniscience_resources_server:
+  resources_servers:
+    omniscience:
+      judge_responses_create_params:
+        max_output_tokens: 32768

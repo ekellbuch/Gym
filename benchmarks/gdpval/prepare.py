@@ -33,6 +33,8 @@ DATA_DIR = BENCHMARK_DIR / "data"
 OUTPUT_FPATH = DATA_DIR / "gdpval_benchmark.jsonl"
 
 HF_DATASET = "openai/gdpval"
+# Keep a fresh-machine prepare on the same public gold-task snapshot.
+HF_REVISION = "11e7900cdcac61bc4daf59e65feb238acda98fbf"
 HF_SPLIT = "train"
 
 
@@ -43,7 +45,7 @@ def prepare() -> Path:
     # Pass HF_TOKEN explicitly — ``load_dataset`` doesn't always pick it up
     # from the env, and GDPVal's bucket aggressively rate-limits anonymous IPs.
     hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-    ds = load_dataset(HF_DATASET, split=HF_SPLIT, token=hf_token)
+    ds = load_dataset(HF_DATASET, split=HF_SPLIT, revision=HF_REVISION, token=hf_token)
 
     with OUTPUT_FPATH.open("w") as f:
         for row in ds:

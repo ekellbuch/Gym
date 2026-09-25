@@ -30,6 +30,8 @@ DATA_DIR = BENCHMARK_DIR / "data"
 OUTPUT_FPATH = DATA_DIR / "apex_shortlist_benchmark.jsonl"
 
 HF_REPO_ID = "MathArena/apex-shortlist"
+HF_REVISION = "f3efdf224ef665f129ddaae37699f6098c65781b"
+EXPECTED_ROWS = 47
 
 
 def prepare() -> Path:
@@ -37,7 +39,9 @@ def prepare() -> Path:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     print(f"Loading APEX Shortlist data from {HF_REPO_ID}...")
-    ds = load_dataset(HF_REPO_ID, split="train")
+    ds = load_dataset(HF_REPO_ID, split="train", revision=HF_REVISION)
+    if len(ds) != EXPECTED_ROWS:
+        raise ValueError(f"Expected {EXPECTED_ROWS} APEX Shortlist rows, got {len(ds)}")
 
     count = 0
     with open(OUTPUT_FPATH, "w") as f:

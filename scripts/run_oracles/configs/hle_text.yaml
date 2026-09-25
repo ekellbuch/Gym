@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Native HLE verifier; judge settings from the post-training recipe:
+# nvidia-eval-factory-benchmarking/configs/benchmarks/hle-no-tools-luna/bench.yaml
+config_paths:
+  - benchmarks/hle/config.yaml
+  - resources_servers/labbench2_vlm/configs/judge_model_openai.yaml
+# Official answer submission requires no generating policy agent.
+equivalence_llm_judge_simple_agent: null
+hle_equivalence_llm_judge_simple_agent: null
+judge_base_url: https://inference-api.nvidia.com/v1
+judge_model_name: openai/openai/gpt-5.6-luna
+judge_api_key: ${oc.env:JUDGE_API_KEY}
+judge_model:
+  responses_api_models:
+    openai_model:
+      extra_body:
+        reasoning_effort: medium
+hle_equivalence_llm_judge_resources_server:
+  resources_servers:
+    equivalence_llm_judge:
+      judge_model_server:
+        name: judge_model
