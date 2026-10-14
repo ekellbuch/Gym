@@ -298,6 +298,15 @@ class TestSeed:
 
         assert client.post("/seed_session", json=seed_body(task)).status_code == 409
 
+    def test_sandbox_lifetime_covers_the_scaled_agent_timeout(self, tmp_path, monkeypatch):
+        server, task, _, _ = make_server(tmp_path, monkeypatch)
+        server.config.agent_timeout_multiplier = 2.0
+        monkeypatch.setattr("resources_servers.harbor.app.get_global_config_dict", lambda: {"sandbox": {"opensandbox": {}}})
+
+        spec = server._sandbox_spec(task, "/app")
+
+        assert spec.ttl_s == 300 * 2 + 120 + server.config.sandbox_ttl_slack_s
+
     def test_sandbox_spec_from_task(self, tmp_path, monkeypatch):
         server, task, _, _ = make_server(tmp_path, monkeypatch)
         monkeypatch.setattr(

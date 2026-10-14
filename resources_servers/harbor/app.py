@@ -115,8 +115,10 @@ class HarborResourcesServerConfig(BaseResourcesServerConfig):
     # Name of the top-level sandbox provider block in the merged config.
     sandbox_provider: str = "sandbox"
     sandbox_ready_timeout_s: float = Field(default=900, gt=0)
-    # Sandbox lifetime = agent timeout + verifier timeout + this slack.
+    # Sandbox lifetime = agent timeout x agent_timeout_multiplier + verifier timeout + this slack.
     sandbox_ttl_slack_s: float = Field(default=900, ge=0)
+    # The agent's multiplier of the task's [agent].timeout_sec (its agent_timeout_multiplier), so the sandbox outlives it.
+    agent_timeout_multiplier: float = Field(default=1.0, gt=0)
     sandbox_provider_options: dict[str, Any] = Field(default_factory=dict)
     sandbox_metadata: dict[str, str] = Field(default_factory=dict)
     # Replaces the task's declared cpus, memory_mb and storage_mb when set (keys: cpu, memory_mib, disk_gib).
@@ -333,7 +335,11 @@ class HarborResourcesServer(SimpleResourcesServer):
             | {"nemo_gym_resources_server": self.config.name, "harbor_task": task.task_id[:63], "harbor_role": role}
         )
         if ttl is None:
-            ttl = task.config.agent.timeout_sec + task.config.verifier.timeout_sec + self.config.sandbox_ttl_slack_s
+            ttl = (
+                task.config.agent.timeout_sec * self.config.agent_timeout_multiplier
+                + task.config.verifier.timeout_sec
+                + self.config.sandbox_ttl_slack_s
+            )
         # The override replaces only the keys it names, so a GPU task routed to the GPU provider keeps `gpu`.
         resources = _sandbox_resources(environment) | (self.config.sandbox_resources_override or {})
         env = dict(self.config.sandbox_env) | dict(task_env)

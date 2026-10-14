@@ -4,6 +4,7 @@
 import asyncio
 import json
 import logging
+import math
 import sys
 import tempfile
 from copy import deepcopy
@@ -97,7 +98,10 @@ class Terminus2AgentConfig(BaseResponsesAPIAgentConfig):
 
     sandbox_provider: str
     sandbox_config: dict[str, Any] = Field(default_factory=dict)
-    sandbox_timeout: float
+    # Ceiling on each run's budget; None: no ceiling, the task's own limit decides.
+    sandbox_timeout: Optional[float] = Field(default=None, gt=0)
+    # Scales the task's own [agent].timeout_sec (the row's metadata), as Harbor's agent_timeout_multiplier.
+    agent_timeout_multiplier: float = Field(default=1.0, gt=0)
     remote_tmux_binary_path: Optional[str]
 
 
@@ -569,8 +573,9 @@ class Terminus2Agent(SimpleResponsesAPIAgent):
         return sandbox
 
     def _agent_timeout_sec(self, body: NeMoGymResponseCreateParamsNonStreaming) -> float:
-        """The run budget: the configured ceiling, bounded by the task's own ``[agent].timeout_sec``."""
-        budget = float(self.config.sandbox_timeout)
+        """The run budget: the task's own ``[agent].timeout_sec`` times ``agent_timeout_multiplier``, at most the
+        ``sandbox_timeout`` ceiling. Without a task limit, the ceiling; with neither, a 422."""
+        budget = self.config.sandbox_timeout if self.config.sandbox_timeout is not None else math.inf
         raw = (body.metadata or {}).get(AGENT_TIMEOUT_METADATA_KEY)
         task_timeout: float | None = None
         if raw is not None:
@@ -579,10 +584,15 @@ class Terminus2Agent(SimpleResponsesAPIAgent):
             except (TypeError, ValueError):
                 LOGGER.warning(f"Ignoring non-numeric {AGENT_TIMEOUT_METADATA_KEY}={raw!r} in the request metadata")
         if task_timeout is not None and task_timeout > 0:
-            budget = min(budget, task_timeout)
+            budget = min(budget, task_timeout * self.config.agent_timeout_multiplier)
+        if math.isinf(budget):
+            raise HTTPException(
+                422, f"No agent time limit: no {AGENT_TIMEOUT_METADATA_KEY} in the request metadata and no sandbox_timeout"
+            )
+        budget = float(budget)
         LOGGER.debug(
             f"Terminus 2 agent timeout: {budget}s (config sandbox_timeout={self.config.sandbox_timeout}, "
-            f"task {AGENT_TIMEOUT_METADATA_KEY}={raw!r})"
+            f"agent_timeout_multiplier={self.config.agent_timeout_multiplier}, task {AGENT_TIMEOUT_METADATA_KEY}={raw!r})"
         )
         return budget
 
@@ -593,6 +603,7 @@ class Terminus2Agent(SimpleResponsesAPIAgent):
         sandbox: AsyncSandbox,
     ) -> Tuple[NeMoGymResponse, Dict[str, Any]]:
         start_time = perf_counter()
+        budget = self._agent_timeout_sec(body)  # before setup: a run without a time limit is refused, not scored
         instruction = _instruction(body.input)
         run_body = await request.json()
         rollout_id = self.rollout_id_from_run(run_body)
@@ -675,7 +686,7 @@ class Terminus2Agent(SimpleResponsesAPIAgent):
             # agent's doing and is refused with a 5xx so the episode is recorded as a masked failure.
             infrastructure_status: int | None = None
             try:
-                async with asyncio.timeout(self._agent_timeout_sec(body)):
+                async with asyncio.timeout(budget):
                     await agent.run(instruction, environment, context)
                 terminus2_completed = True
                 error = None

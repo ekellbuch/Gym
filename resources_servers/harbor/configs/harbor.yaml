@@ -10,7 +10,7 @@ harbor_resources_server:
       # Top-level sandbox provider block in the merged config (see nemo_gym/sandbox/providers/*/configs).
       sandbox_provider: sandbox
       sandbox_ready_timeout_s: 900
-      # Sandbox lifetime = [agent].timeout_sec + [verifier].timeout_sec + this slack.
+      # Sandbox lifetime = [agent].timeout_sec x agent_timeout_multiplier + [verifier].timeout_sec + this slack.
       sandbox_ttl_slack_s: 900
       sandbox_provider_options: {}
       sandbox_metadata:

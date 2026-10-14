@@ -34,7 +34,7 @@ class SeedSessionResponse(BaseModel):
     sandbox_provider: dict[str, JsonValue] = Field(default_factory=dict)
     instruction: str = ""
     user: str | int | None = None
-    agent_timeout_sec: float = Field(default=28800, gt=0)
+    agent_timeout_sec: float | None = Field(default=28800, gt=0)  # None: no ceiling (episode sessions)
     mcp_servers: list[dict[str, JsonValue]] = Field(default_factory=list)
     skills_dir: str | None = None
     termination: HarnessOutcome | None = None

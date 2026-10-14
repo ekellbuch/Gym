@@ -244,6 +244,30 @@ def test_the_task_timeout_bounds_the_turn_budget(tmp_path, monkeypatch):
     assert 0 < harness.budget <= 30
 
 
+def test_the_multiplier_scales_the_task_timeout_without_a_ceiling(tmp_path, monkeypatch):
+    agent, client, _, _, _ = make_agent(tmp_path, monkeypatch)
+    agent.config.agent_timeout_sec = None
+    agent.config.agent_timeout_multiplier = 2.0
+    assert client.post("/v1/agent_sessions", json=seed_body()).status_code == 200
+
+    body = {"input": "Do it", "metadata": {module.AGENT_TIMEOUT_METADATA_KEY: "30"}}
+    assert client.post(capture_path(), json=body).status_code == 200
+    (harness,) = FakeHarness.instances
+    # No ceiling: the task's own 30 s, doubled.
+    assert 30 < harness.budget <= 60
+
+
+def test_a_turn_without_any_time_limit_is_refused(tmp_path, monkeypatch):
+    agent, client, _, _, _ = make_agent(tmp_path, monkeypatch)
+    agent.config.agent_timeout_sec = None
+    assert client.post("/v1/agent_sessions", json=seed_body()).status_code == 200
+
+    response = client.post(capture_path(), json={"input": "Do it"})
+    assert response.status_code == 422, response.text
+    assert "No agent time limit" in response.json()["detail"]
+    assert FakeHarness.instances == []
+
+
 @pytest.mark.parametrize("reason", ["infrastructure_error", "cancelled"])
 def test_infrastructure_outcomes_are_a_503_so_the_episode_is_masked(tmp_path, monkeypatch, reason):
     class FailingHarness(FakeHarness):

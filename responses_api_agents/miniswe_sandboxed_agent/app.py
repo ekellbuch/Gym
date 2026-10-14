@@ -6,6 +6,7 @@
 import asyncio
 import json
 import logging
+import math
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -107,8 +108,10 @@ class MiniSWESandboxedConfig(BaseResponsesAPIAgentConfig):
     harness: MiniSWEConfig = Field(default_factory=MiniSWEConfig)
     artifacts_dir: Path = Path("results/miniswe_sandboxed_agent")
     agent_max_timeout_sec: float | None = Field(default=None, gt=0)
-    # Wall-clock budget of one episode-session turn; the legacy path takes it from the seed reply.
-    agent_timeout_sec: float = Field(default=28800, gt=0)
+    # Ceiling on one episode-session turn's budget (None: no ceiling); the legacy path takes it from the seed reply.
+    agent_timeout_sec: float | None = Field(default=28800, gt=0)
+    # Scales the task's own [agent].timeout_sec (the row's metadata), as Harbor's agent_timeout_multiplier.
+    agent_timeout_multiplier: float = Field(default=1.0, gt=0)
     setup_timeout_sec: float = Field(default=360, gt=0)
     shutdown_timeout_sec: float = Field(default=30, ge=0)
 
@@ -241,8 +244,9 @@ class MiniSWESandboxedAgent(SimpleResponsesAPIAgent):
         return self.config.sandbox_model_base_url or get_server_url(self.config.model_server.name)
 
     def _agent_timeout_sec(self, state: MiniSWESession, body: NeMoGymResponseCreateParamsNonStreaming) -> float:
-        """The run budget: the seed's budget and the configured ceiling, bounded by the task's own timeout."""
-        budget = min(state.seed.agent_timeout_sec, self.config.agent_max_timeout_sec or float("inf"))
+        """The run budget: the task's own timeout times agent_timeout_multiplier, at most the seed's budget and the
+        configured ceiling. Without a task limit, the ceilings; with none at all, a 422."""
+        budget = min(state.seed.agent_timeout_sec or math.inf, self.config.agent_max_timeout_sec or math.inf)
         raw = (body.metadata or {}).get(AGENT_TIMEOUT_METADATA_KEY)
         if raw is not None:
             try:
@@ -251,7 +255,13 @@ class MiniSWESandboxedAgent(SimpleResponsesAPIAgent):
                 LOGGER.warning(f"Ignoring non-numeric {AGENT_TIMEOUT_METADATA_KEY}={raw!r} in the request metadata")
             else:
                 if task_timeout > 0:
-                    budget = min(budget, task_timeout)
+                    budget = min(budget, task_timeout * self.config.agent_timeout_multiplier)
+        if math.isinf(budget):
+            raise HTTPException(
+                422,
+                f"No agent time limit: no {AGENT_TIMEOUT_METADATA_KEY} in the request metadata, "
+                "and agent_timeout_sec and agent_max_timeout_sec are unset",
+            )
         return budget
 
     async def _seed_agent_session_state(self, body: AgentSeedSessionRequest) -> MiniSWEEpisodeSession:
@@ -355,6 +365,7 @@ class MiniSWESandboxedAgent(SimpleResponsesAPIAgent):
             await self._bind_episode_turn(state, body, rollout_id)
         if body != state.original_params:
             raise HTTPException(409, "Agent session is already bound to another request")
+        budget = self._agent_timeout_sec(state, body)  # before setup: a turn without a time limit is refused
 
         async def execute_message() -> AgentExecutionResult:
             params = body.model_copy(deep=True)
@@ -411,7 +422,7 @@ class MiniSWESandboxedAgent(SimpleResponsesAPIAgent):
                             await harness.setup()
                         timings["agent_setup"]["finished_at"] = now()
                         timings["agent_execution"] = {"started_at": now()}
-                        deadline = monotonic() + self._agent_timeout_sec(state, body)
+                        deadline = monotonic() + budget
                         agent_started = True
                         response, termination, extra = await harness.execute(max(0, deadline - monotonic()))
                         if monotonic() >= deadline:

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import HTTPException
 
 from nemo_gym.config_types import ModelServerRef, ResourcesServerRef
 from nemo_gym.openai_utils import (
@@ -774,6 +775,54 @@ class TestAgentTimeout:
         # Config allows 10 s; the task declares 0.01 s, so the run times out under the task's budget.
         _, _, (response, _) = await _execute_with_harness(monkeypatch, run, metadata={"agent_timeout_sec": "0.01"})
         assert response.metadata["terminus2_outcome"] == "timeout"
+
+    def test_multiplier_scales_the_task_timeout_without_a_ceiling(self, caplog):
+        agent = Terminus2Agent(
+            config=_harness_config(sandbox_timeout=None, agent_timeout_multiplier=2.0),
+            server_client=MagicMock(spec=ServerClient),
+        )
+        body = NeMoGymResponseCreateParamsNonStreaming(input="x", metadata={"agent_timeout_sec": "900"})
+        with caplog.at_level(logging.DEBUG, logger=app_module.__name__):
+            assert agent._agent_timeout_sec(body) == 1800.0
+        assert "Terminus 2 agent timeout: 1800.0s" in caplog.text
+
+    def test_ceiling_caps_the_scaled_task_timeout(self):
+        agent = Terminus2Agent(
+            config=_harness_config(sandbox_timeout=1000, agent_timeout_multiplier=2.0),
+            server_client=MagicMock(spec=ServerClient),
+        )
+        body = NeMoGymResponseCreateParamsNonStreaming(input="x", metadata={"agent_timeout_sec": "900"})
+        assert agent._agent_timeout_sec(body) == 1000.0
+
+    @pytest.mark.parametrize("metadata", [None, {"agent_timeout_sec": "0"}])
+    def test_no_task_timeout_and_no_ceiling_is_refused(self, metadata):
+        body = NeMoGymResponseCreateParamsNonStreaming(input="x", metadata=metadata)
+        with pytest.raises(HTTPException) as error:
+            self._agent(sandbox_timeout=None)._agent_timeout_sec(body)
+        assert error.value.status_code == 422 and "No agent time limit" in error.value.detail
+
+    def test_config_needs_no_ceiling(self):
+        config = Terminus2AgentConfig.model_validate(
+            _native_config().model_dump(exclude={"sandbox_timeout"}) | {"agent_timeout_multiplier": 2.0}
+        )
+        assert config.sandbox_timeout is None and config.agent_timeout_multiplier == 2.0
+
+    @pytest.mark.asyncio
+    async def test_execute_refuses_a_run_without_a_time_limit_before_setup(self, monkeypatch):
+        async def run(agent, instruction, environment, context):
+            raise AssertionError("the agent must not run")
+
+        commands = []
+
+        async def sandbox_exec(command, **kwargs):
+            commands.append(command)
+            return SimpleNamespace(stdout="", stderr="", return_code=0)
+
+        with pytest.raises(HTTPException) as error:
+            await _execute_with_harness(
+                monkeypatch, run, config=_harness_config(sandbox_timeout=None), sandbox_exec=sandbox_exec
+            )
+        assert error.value.status_code == 422 and commands == []
 
 
 @pytest.mark.asyncio
