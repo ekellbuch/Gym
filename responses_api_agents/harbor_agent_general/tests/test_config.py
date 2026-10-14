@@ -85,3 +85,33 @@ def test_build_job_config_preserves_harbor_config_overrides(tmp_path: Path) -> N
     assert job_config.environment.type == "singularity"
     assert job_config.environment.kwargs == {"singularity_force_pull": True}
     assert job_config.agents[0].model_name == "custom-model"
+
+
+def test_build_job_config_defaults_timeout_multipliers_to_harbor_defaults(tmp_path: Path) -> None:
+    job_config = _make_config(tmp_path, tmp_path / "jobs").build_job_config(task_name="task-003", job_name="job-003")
+
+    assert job_config.timeout_multiplier == 1.0
+    assert job_config.agent_timeout_multiplier is None
+    assert job_config.verifier_timeout_multiplier is None
+    assert job_config.agent_setup_timeout_multiplier is None
+    assert job_config.environment_build_timeout_multiplier is None
+
+
+def test_build_job_config_passes_timeout_multipliers_to_harbor(tmp_path: Path) -> None:
+    config = _make_config(
+        tmp_path,
+        tmp_path / "jobs",
+        harbor_timeout_multiplier=1.5,
+        harbor_agent_timeout_multiplier=2.0,
+        harbor_verifier_timeout_multiplier=3.0,
+        harbor_agent_setup_timeout_multiplier=4.0,
+        harbor_environment_build_timeout_multiplier=5.0,
+    )
+
+    job_config = config.build_job_config(task_name="task-004", job_name="job-004")
+
+    assert job_config.timeout_multiplier == 1.5
+    assert job_config.agent_timeout_multiplier == 2.0
+    assert job_config.verifier_timeout_multiplier == 3.0
+    assert job_config.agent_setup_timeout_multiplier == 4.0
+    assert job_config.environment_build_timeout_multiplier == 5.0

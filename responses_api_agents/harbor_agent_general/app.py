@@ -80,6 +80,13 @@ class HarborAgentConfig(BaseResponsesAPIAgentConfig):
     harbor_environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
     harbor_agent: AgentConfig = Field(default_factory=AgentConfig)
     harbor_verifier: VerifierConfig = Field(default_factory=VerifierConfig)
+    # Harbor's JobConfig timeout multipliers: each task's own limits from task.toml, scaled. A phase's own multiplier
+    # (agent, verifier, agent setup, environment build) overrides harbor_timeout_multiplier for that phase.
+    harbor_timeout_multiplier: float = Field(default=1.0, gt=0)
+    harbor_agent_timeout_multiplier: float | None = Field(default=None, gt=0)
+    harbor_verifier_timeout_multiplier: float | None = Field(default=None, gt=0)
+    harbor_agent_setup_timeout_multiplier: float | None = Field(default=None, gt=0)
+    harbor_environment_build_timeout_multiplier: float | None = Field(default=None, gt=0)
 
     @field_validator("harbor_jobs_dir", mode="after")
     @classmethod
@@ -104,6 +111,11 @@ class HarborAgentConfig(BaseResponsesAPIAgentConfig):
             environment=self.harbor_environment.model_copy(update={"delete": True}),
             agents=[self.harbor_agent],
             verifier=self.harbor_verifier,
+            timeout_multiplier=self.harbor_timeout_multiplier,
+            agent_timeout_multiplier=self.harbor_agent_timeout_multiplier,
+            verifier_timeout_multiplier=self.harbor_verifier_timeout_multiplier,
+            agent_setup_timeout_multiplier=self.harbor_agent_setup_timeout_multiplier,
+            environment_build_timeout_multiplier=self.harbor_environment_build_timeout_multiplier,
         )
 
 
