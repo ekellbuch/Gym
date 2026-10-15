@@ -254,10 +254,13 @@ class NeMoGymLLM(BaseLLM):
         self._client = client
         self.observations = observations
         self._model_name = model_name
-        # Task-set request fields (temperature, top_p, ...) go on every model call; the agent owns model and input.
+        # Task-set request fields (temperature, top_p, ...) go on every model call; agent-side ones stay, as mini-SWE.
         self._request_params = (
             responses_create_params.model_dump(
-                mode="json", exclude_unset=True, exclude_none=True, exclude={"input", "model"}
+                mode="json",
+                exclude_unset=True,
+                exclude_none=True,
+                exclude={"input", "model", "metadata", "tools", "stream"},
             )
             if responses_create_params is not None
             else {}

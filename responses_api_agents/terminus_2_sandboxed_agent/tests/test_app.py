@@ -835,6 +835,21 @@ class TestAgentTimeout:
             id="task_sets_sampling",
         ),
         pytest.param({"top_p": None}, {}, id="task_leaves_sampling_unset"),
+        # Harbor rows carry the task's time limit in metadata; it is for the agent, not the model server.
+        pytest.param(
+            {"temperature": 0.6, "metadata": {"agent_timeout_sec": "1800.0"}},
+            {"temperature": 0.6},
+            id="task_metadata_not_forwarded",
+        ),
+        pytest.param(
+            {
+                "temperature": 0.6,
+                "tools": [{"type": "function", "name": "bash", "parameters": {}, "strict": False}],
+                "stream": False,
+            },
+            {"temperature": 0.6},
+            id="task_tools_and_stream_not_forwarded",
+        ),
     ],
 )
 async def test_execute_forwards_task_sampling_params_to_every_model_call(monkeypatch, task_params, forwarded):
