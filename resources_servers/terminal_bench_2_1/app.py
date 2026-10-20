@@ -4,7 +4,7 @@
 from contextlib import contextmanager
 from copy import deepcopy
 from glob import glob
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from shlex import join
 from sys import stderr
 from tempfile import NamedTemporaryFile
@@ -44,6 +44,39 @@ fi
 """
 
 
+def _build_free_environment(task_folder: Path, docker_image: str) -> Optional[Tuple[Optional[str], List[Tuple[Path, str]]]]:
+    """WORKDIR and COPY steps of a task whose environment/Dockerfile only adds files to the row's docker_image.
+
+    Official TB2.1 rows name an image prebuilt from the task's Dockerfile, so nothing is staged for them. A task
+    whose Dockerfile is FROM the row's own docker_image with only WORKDIR and plain-file COPY steps (the Harbor
+    format's small custom tasks, which Harbor builds and the sandbox providers here cannot) gets its WORKDIR made
+    and its files uploaded at sandbox setup instead. Anything else returns None: such a task needs a prebuilt image.
+    """
+    if not task_folder.is_absolute():
+        task_folder = PARENT_DIR / task_folder
+    dockerfile = task_folder / "environment" / "Dockerfile"
+    if not dockerfile.is_file():
+        return None
+    base, workdir, copies = None, None, []
+    for line in dockerfile.read_text().splitlines():
+        op, *args = line.split() or ["#"]
+        if op.startswith("#"):
+            continue
+        elif op.upper() == "FROM" and len(args) == 1:
+            base = args[0]
+        elif op.upper() == "WORKDIR" and len(args) == 1:
+            workdir = str(PurePosixPath(workdir or "/") / args[0])
+        elif op.upper() == "COPY" and len(args) == 2 and not args[0].startswith("--"):
+            src = task_folder / "environment" / args[0]
+            if not src.is_file():
+                return None
+            dst = PurePosixPath(workdir or "/") / args[1]
+            copies.append((src, str(dst / src.name if args[1].endswith("/") else dst)))
+        else:
+            return None
+    return (workdir, copies) if base == docker_image else None
+
+
 class TerminalBench21ResourcesServerConfig(BaseResourcesServerConfig):
     REVERIFY_MODE: ClassVar[ReverifyMode] = ReverifyMode.STATELESS
 
@@ -59,6 +92,7 @@ class TerminalBench21ResourcesServerConfig(BaseResourcesServerConfig):
 
 class TerminalBench21SeedSessionResponse(BaseSeedSessionResponse):
     sandbox_handle: str  # @bxyu-nvidia: Just a plain string URI for now for OpenSandbox backend.
+    workdir: Optional[str] = None  # the Dockerfile's WORKDIR of a build-free task; the agent connects there
 
 
 class TerminalBench21SeedSessionRequest(BaseModel):
@@ -213,6 +247,16 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
             if result.return_code != 0:
                 print(f"Failed to apt-get update: {result}")
 
+            environment = _build_free_environment(Path(verify_request.task_folder), verify_request.docker_image)
+            if environment is not None:
+                workdir, copies = environment
+                for remote_dir in ([workdir] if workdir else []) + [str(PurePosixPath(dst).parent) for _, dst in copies]:
+                    result = await sandbox.exec(join(["mkdir", "-p", remote_dir]), timeout_s=60)
+                    if result.return_code != 0:
+                        raise RuntimeError(f"Failed to make {remote_dir} for {verify_request.task_name}: {result}")
+                for local_fpath, remote_fpath in copies:
+                    await sandbox.upload(local_path=local_fpath, remote_path=remote_fpath)
+
         # start_with_setup stops the container if _run_setup raises, instead of
         # leaving it running until its TTL.
         await eval_sandbox.start_with_setup(eval_sandbox_spec, _run_setup)
@@ -225,7 +269,10 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
         eval_sandbox = await self._create_sandbox(body)
         self._session_id_to_sandbox[request.session[SESSION_ID_KEY]] = eval_sandbox
 
-        return TerminalBench21SeedSessionResponse(sandbox_handle=eval_sandbox._handle.sandbox_id)
+        environment = _build_free_environment(Path(body.task_folder), body.docker_image)
+        return TerminalBench21SeedSessionResponse(
+            sandbox_handle=eval_sandbox._handle.sandbox_id, workdir=environment[0] if environment else None
+        )
 
     @contextmanager
     def _patch_golden_patch_solve_sh(
@@ -304,9 +351,13 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
             setup_result = await eval_sandbox.exec("mkdir -p /logs/verifier", timeout_s=self.config.evaluation_timeout)
             if setup_result.return_code != 0:
                 raise RuntimeError(f"Failed to prepare TerminalBench verifier output directory: {setup_result}")
+            # Harbor runs the tests in the image's WORKDIR; a build-free task's WORKDIR is not the container default.
+            environment = _build_free_environment(task_folder, body.docker_image)
+            test_cwd = {"cwd": environment[0]} if environment and environment[0] else {}
             eval_result = await eval_sandbox.exec(
                 "bash /tests/test.sh",
                 timeout_s=self.config.evaluation_timeout,
+                **test_cwd,
             )
             test_output = (eval_result.stderr or "") + (eval_result.stdout or "")
         except:
