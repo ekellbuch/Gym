@@ -1084,6 +1084,15 @@ class OpenCodeSandboxedAgent(SimpleResponsesAPIAgent):
                 self._sandbox_id_to_run_result.pop(session_key, None)
 
         response_dict |= run_result
+        if self.config.artifacts_dir:
+            # The attempt's verdict next to its generation.json, so a run can be audited per trajectory offline.
+            record = {k: v for k, v in response_dict.items() if k not in ("response", "responses_create_params")}
+            record["test_output"] = str(record.get("test_output") or "")[-20000:]
+            record |= {"rollout_id": rollout_id, "session_id": session_key, "finished_at": time()}
+            record_dir = Path(self.config.artifacts_dir) / session_key
+            record_dir.mkdir(parents=True, exist_ok=True)
+            (record_dir / "verify.json.partial").write_text(json.dumps(record, default=str))
+            (record_dir / "verify.json.partial").replace(record_dir / "verify.json")
         if trajectory is not None:
             response_dict["ng_trajectory"] = scope_opencode_trajectory(trajectory, body, rollout_id)
         raw_verifier_sandbox_observation = response_dict.pop("verifier_sandbox_observation", None)
