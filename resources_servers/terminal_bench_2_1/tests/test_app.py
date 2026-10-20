@@ -292,3 +292,17 @@ def test_security_snapshot_preserves_other_repositories(tmp_path: Path, distro: 
     assert sources.read_text() == unrelated + expected + "\n"
     subprocess.run(command, check=True)
     assert sources.read_text() == unrelated + expected + "\n"
+
+
+def test_build_free_environment_stages_workdir_and_copies(tmp_path: Path) -> None:
+    environment = tmp_path / "environment"
+    environment.mkdir()
+    (environment / "input.txt").write_text("1\n2\n")
+    (environment / "Dockerfile").write_text("FROM python:3.13-slim-bookworm\n\nWORKDIR /app\nCOPY input.txt /app/input.txt\n")
+    staged = terminal_bench_app._build_free_environment(tmp_path, "python:3.13-slim-bookworm")
+    assert staged == ("/app", [(environment / "input.txt", "/app/input.txt")])
+    # An image prebuilt from the Dockerfile (every official TB2.1 row) stages nothing.
+    assert terminal_bench_app._build_free_environment(tmp_path, "alexgshaw/some-task:20251031") is None
+    # So does any instruction beyond WORKDIR and plain-file COPY: such a task needs a prebuilt image.
+    (environment / "Dockerfile").write_text("FROM python:3.13-slim-bookworm\nRUN pip install numpy\n")
+    assert terminal_bench_app._build_free_environment(tmp_path, "python:3.13-slim-bookworm") is None
