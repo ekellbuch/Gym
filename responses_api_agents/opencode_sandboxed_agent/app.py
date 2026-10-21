@@ -397,6 +397,24 @@ def parse_opencode_observations(
     )
 
 
+def count_invalid_tool_calls(opencode_export: Dict[str, Any]) -> int:
+    """Tool calls OpenCode could not run as called: unknown tool names (routed to its "invalid" tool), arguments that
+    fail the tool's schema, and tool-call markup left unparsed in the assistant's text."""
+    count = 0
+    for message in opencode_export.get("messages", []):
+        if message.get("info", {}).get("role") != "assistant":
+            continue
+        for part in message.get("parts", []):
+            state = part.get("state") or {}
+            if part.get("type") == "tool":
+                count += part.get("tool") == "invalid" or (
+                    state.get("status") == "error" and "called with invalid arguments" in str(state.get("error"))
+                )
+            elif part.get("type") == "text":
+                count += "<tool_call>" in part.get("text", "") or "<function=" in part.get("text", "")
+    return count
+
+
 class OpenCodeSandboxedAgentConfig(BaseResponsesAPIAgentConfig):
     resources_server: ResourcesServerRef
     model_server: ModelServerRef
@@ -410,6 +428,8 @@ class OpenCodeSandboxedAgentConfig(BaseResponsesAPIAgentConfig):
     concurrency: int = Field(default=64, gt=0)
     preinstalled_opencode: bool = False
     execution_failure_reward_zero: bool = False
+    # Score 0 a session with any invalid tool call (count_invalid_tool_calls), like execution_failure_reward_zero.
+    invalid_tool_call_reward_zero: bool = False
     output_token_policy: Literal["fixed", "remaining_context"] = "fixed"
     network_access: Literal["inherit", "model_only", "model_and_tools"] = "inherit"
     tool_servers: List[ResourcesServerRef] = Field(default_factory=list)
@@ -471,6 +491,7 @@ class OpenCodeSandboxedAgentVerifyResponse(BaseVerifyResponse):
     opencode_exit_code: Optional[int] = None
     opencode_error_type: Optional[str] = None
     opencode_failed: bool = False
+    opencode_invalid_tool_calls: int = 0
     ng_agent_observations: Optional[AgentObservationBundle] = Field(
         default=None,
         exclude_if=lambda value: value is None,
@@ -991,6 +1012,7 @@ class OpenCodeSandboxedAgent(SimpleResponsesAPIAgent):
             "opencode_run_stderr": result_stderr,
             "opencode_export_found": opencode_export_found,
             "opencode_finished": opencode_finished,
+            "opencode_invalid_tool_calls": count_invalid_tool_calls(opencode_export),
         }
         if collect_observations:
             run_result["_ng_agent_observations"] = observations
@@ -1063,15 +1085,23 @@ class OpenCodeSandboxedAgent(SimpleResponsesAPIAgent):
             run_result = self._sandbox_id_to_run_result.get(session_key, {}).copy()
             observations = run_result.pop("_ng_agent_observations", None)
             trajectory = run_result.pop("_ng_trajectory", None)
+            execution_zero = self.config.execution_failure_reward_zero and run_result.get("opencode_failed", False)
+            invalid_zero = (
+                self.config.invalid_tool_call_reward_zero and run_result.get("opencode_invalid_tool_calls", 0) > 0
+            )
             response_dict = await verify_agent_response(
                 self.server_client,
                 self.config.resources_server,
                 body,
                 response,
                 cookies,
-                force_zero_reward=self.config.execution_failure_reward_zero
-                and run_result.get("opencode_failed", False),
+                force_zero_reward=execution_zero or invalid_zero,
             )
+            if invalid_zero and not execution_zero:
+                response_dict["failure_reason"] = (
+                    f"{run_result['opencode_invalid_tool_calls']} invalid tool call(s); "
+                    "invalid_tool_call_reward_zero applied via empty-response verification."
+                )
         finally:
             del request.state._ng_observation_invocation_id
             del request.state._ng_opencode_mcp

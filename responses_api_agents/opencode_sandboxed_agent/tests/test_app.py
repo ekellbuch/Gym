@@ -964,3 +964,92 @@ async def test_terminal_length_stop_scores_zero_and_preserves_output(
     assert receipt["response"]["output"]
     assert receipt["response"]["status"] == result.response.status
     sandbox.stop.assert_awaited_once()
+
+
+def _assistant(*parts: Dict[str, Any]) -> Dict[str, Any]:
+    return {"info": {"role": "assistant"}, "parts": list(parts)}
+
+
+def test_count_invalid_tool_calls():
+    unknown = {
+        "type": "tool",
+        "tool": "invalid",
+        "state": {"status": "completed", "input": {"tool": "bash<parameter"}},
+    }
+    bad_args = {
+        "type": "tool",
+        "tool": "write",
+        "state": {"status": "error", "error": "The write tool was called with invalid arguments: SchemaError(...)"},
+    }
+    tool_error = {"type": "tool", "tool": "read", "state": {"status": "error", "error": "File not found: /app/x"}}
+    ok = {"type": "tool", "tool": "bash", "state": {"status": "completed"}}
+    markup = {"type": "text", "text": "Let me read it.\n\n<tool_call>\n<function=read>"}
+    user_markup = {"info": {"role": "user"}, "parts": [markup]}
+    export = {"messages": [user_markup, _assistant(ok, tool_error), _assistant(unknown, bad_args, markup)]}
+    assert app_module.count_invalid_tool_calls(export) == 3
+    assert app_module.count_invalid_tool_calls({"messages": [_assistant(ok, tool_error)]}) == 0
+
+
+@mark.parametrize("invalid_zero", [False, True])
+async def test_invalid_tool_call_scores_zero(tmp_path, monkeypatch, invalid_zero):
+    from fastapi import Request
+
+    config = TestOpenCodeSandboxedAgent()._create_config()
+    config.artifacts_dir = str(tmp_path)
+    config.preinstalled_opencode = True
+    config.execution_failure_reward_zero = True
+    config.invalid_tool_call_reward_zero = invalid_zero
+    client = MagicMock(spec=ServerClient)
+
+    async def post(**kwargs):
+        payload = kwargs["json"]
+        if kwargs["url_path"] == "/verify":
+            score = float(bool(payload["response"]["output"]))
+            payload = payload | {"reward": score, "library_reward": score}
+        return SimpleNamespace(
+            cookies={},
+            json=AsyncMock(return_value={}),
+            ok=True,
+            read=AsyncMock(return_value=json.dumps(payload).encode()),
+            raise_for_status=lambda: None,
+        )
+
+    client.post = AsyncMock(side_effect=post)
+    server = OpenCodeSandboxedAgent(config=config, server_client=client)
+    monkeypatch.setattr(server, "_capture_correlation_enabled", lambda: False)
+    sandbox = MagicMock(stop=AsyncMock(), upload=AsyncMock())
+
+    async def execute(command, **kwargs):
+        stdout = '[{"id":"session"}]' if "session list" in command else "Shell: bash\nOpenCode run finished"
+        return SimpleNamespace(return_code=0, error_type=None, stdout=stdout, stderr="")
+
+    sandbox.exec = AsyncMock(side_effect=execute)
+    export = json.loads(Path(__file__).with_name("opencode_export_test_data.json").read_text())
+    tool_part = next(p for p in export["messages"][2]["parts"] if p["type"] == "tool")
+    bad_args = tool_part["state"] | {
+        "status": "error",
+        "input": {},
+        "error": 'The read tool was called with invalid arguments: SchemaError(Missing key\n  at ["filePath"]).',
+    }
+    export["messages"][2]["parts"].insert(3, tool_part | {"callID": "bad", "state": bad_args})
+
+    async def download(remote, local):
+        local.write_text(json.dumps(export))
+
+    sandbox.download = AsyncMock(side_effect=download)
+    server._start_sandbox = AsyncMock(return_value=sandbox)
+    server._create_opencode_config = AsyncMock(return_value={})
+    monkeypatch.setattr(app_module, "raise_for_status", AsyncMock())
+    body = OpenCodeSandboxedAgentRunRequest.model_validate(
+        {"responses_create_params": {"input": [{"role": "user", "content": "Solve"}]}}
+    )
+    request = Request(
+        {"type": "http", "method": "POST", "path": "/run", "headers": [], "session": {SESSION_ID_KEY: "trial"}}
+    )
+    result = await server.run(request, body)
+    assert not result.opencode_failed
+    assert result.opencode_invalid_tool_calls == 1
+    assert result.reward == (0 if invalid_zero else 1)
+    assert result.response.output
+    assert bool(client.post.await_args.kwargs["json"]["response"]["output"]) is not invalid_zero
+    assert ("invalid_tool_call_reward_zero" in str(result.model_dump().get("failure_reason"))) is invalid_zero
