@@ -23,12 +23,24 @@ from resources_servers.terminal_bench_2_1.app import (
 )
 
 
-def _verify_request(task_folder: Path) -> TerminalBench21VerifyRequest:
+# An agent's transcript; an empty output is a failed run (execution_failure_reward_zero).
+AGENT_OUTPUT = [
+    {
+        "id": "msg",
+        "type": "message",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{"type": "output_text", "text": "Done.", "annotations": []}],
+    }
+]
+
+
+def _verify_request(task_folder: Path, output: list | None = None) -> TerminalBench21VerifyRequest:
     return TerminalBench21VerifyRequest.model_validate(
         {
             "responses_create_params": {"input": []},
             "response": {
-                "output": [],
+                "output": AGENT_OUTPUT if output is None else output,
                 "id": "",
                 "created_at": 0,
                 "model": "",
@@ -103,6 +115,28 @@ class TestApp:
         sandbox.stop.assert_awaited_once()
         assert "test-session" not in server._session_id_to_sandbox
 
+    async def test_verify_scores_an_empty_response_zero_without_running_tests(
+        self, server: TerminalBench21ResourcesServer, tmp_path: Path
+    ) -> None:
+        sandbox = MagicMock()
+        sandbox.exec = AsyncMock(return_value=SimpleNamespace(stdout="", stderr="", return_code=0))
+        sandbox.download = AsyncMock(side_effect=lambda remote_path, local_path: Path(local_path).write_text("1"))
+        sandbox.stop = AsyncMock()
+        server._upload_folder = AsyncMock()
+        server._session_id_to_sandbox["test-session"] = sandbox
+        request = MagicMock()
+        request.session = {SESSION_ID_KEY: "test-session"}
+
+        result = await server.verify(request, _verify_request(tmp_path, output=[]))
+
+        assert result.reward == 0.0
+        assert result.evaluation_completed is True
+        assert not result.mask_sample
+        sandbox.exec.assert_not_awaited()
+        server._upload_folder.assert_not_awaited()
+        sandbox.stop.assert_awaited_once()
+        assert "test-session" not in server._session_id_to_sandbox
+
     @pytest.mark.parametrize("timeout", [1800, None])
     async def test_golden_patch_preserves_services_and_runs_verifier_separately(
         self, server: TerminalBench21ResourcesServer, tmp_path: Path, timeout: int | None
@@ -116,7 +150,8 @@ class TestApp:
         server._create_sandbox = AsyncMock(return_value=sandbox)
         server._upload_folder = AsyncMock()
 
-        await server.verify(MagicMock(), _verify_request(tmp_path))
+        # Golden-patch verification grades the solution, not an agent response, so an empty output still runs it.
+        await server.verify(MagicMock(), _verify_request(tmp_path, output=[]))
 
         assert sandbox.exec.await_args_list == [
             call("pwd"),
@@ -253,7 +288,7 @@ class TestApp:
                 created_at=0,
                 model="test",
                 object="response",
-                output=[],
+                output=AGENT_OUTPUT,
                 parallel_tool_calls=False,
                 tool_choice="none",
                 tools=[],

@@ -318,6 +318,24 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
     async def verify(self, request: Request, body: TerminalBench21VerifyRequest) -> TerminalBench21VerifyResponse:
         task_folder = Path(body.task_folder)
 
+        # An empty response is how agents with execution_failure_reward_zero grade a failed run (a timeout, the context
+        # limit): score it 0 rather than the sandbox state, which the tests would grade.
+        if not body.response.output and not self.config.is_verifying_golden_patch:
+            sandbox = self._session_id_to_sandbox.pop(request.session[SESSION_ID_KEY], None)
+            try:
+                if sandbox is not None:
+                    await sandbox.stop()
+            except:
+                print(f"Hit an exception stopping sandbox: {format_exc()}", file=stderr)
+            return TerminalBench21VerifyResponse(
+                **body.model_dump(),
+                evaluation_completed=True,
+                reward=0.0,
+                verification_time_taken=0.0,
+                test_output="",
+                golden_patch_output=None,
+            )
+
         if self.config.is_verifying_golden_patch:
             if self.config.debug:
                 print(f"Creating eval sandbox for {body.task_name}", file=stderr)
