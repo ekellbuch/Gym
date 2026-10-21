@@ -843,6 +843,42 @@ class TestApp:
             else:
                 assert '"finish_reason": "length"' in response.text
 
+    @mark.parametrize("prior_calls,engine_called", [(1, True), (2, False), (3, False)])
+    def test_max_assistant_turns_ends_the_conversation_locally(
+        self, monkeypatch: MonkeyPatch, prior_calls: int, engine_called: bool
+    ) -> None:
+        server = self._setup_server(monkeypatch)
+        server.config.max_assistant_turns = 2
+        request_info = MagicMock(real_url="http://vllm.test/v1/chat/completions")
+        # Below the cap the engine is called; its context overflow stands in for a completion.
+        error = ClientResponseError(request_info, (), status=400, message="Bad Request")
+        error.response_content = b'{"error":{"message":"maximum context length","code":400}}'
+        mock_client = MagicMock(spec=NeMoGymAsyncOpenAI)
+        mock_client.create_chat_completion = AsyncMock(side_effect=error)
+        server._clients = [mock_client]
+        messages = [{"role": "user", "content": "hi"}]
+        for i in range(prior_calls):
+            messages += [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{"id": f"c{i}", "type": "function", "function": {"name": "f", "arguments": "{}"}}],
+                },
+                {"role": "tool", "tool_call_id": f"c{i}", "content": "ok"},
+            ]
+
+        app = server.setup_webserver()
+        response = TestClient(app).post(
+            "/v1/chat/completions", json={"model": "dummy_model", "messages": messages}
+        )
+
+        assert response.status_code == 200
+        choice = response.json()["choices"][0]
+        assert mock_client.create_chat_completion.await_count == int(engine_called)
+        if not engine_called:
+            assert choice["finish_reason"] == "stop"
+            assert not choice["message"]["content"] and not choice["message"]["tool_calls"]
+
     def test_megatron_capture_handler_prepares_an_admitted_child_request(self, monkeypatch: MonkeyPatch) -> None:
         server = self._setup_server(monkeypatch, external_staging_backend="megatron_worker")
         context = CaptureContext(

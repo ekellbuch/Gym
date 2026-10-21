@@ -206,6 +206,12 @@ class VLLMModelConfig(BaseResponsesAPIModelConfig):
     # Whether or not the model can generate a reasoning output, and called again to produce additional reasoning output.
     sequential_reasoning_allowed: bool = True
 
+    # Answer a request whose messages already hold this many assistant messages (prior model calls of the
+    # conversation) with an empty "stop" completion, without calling the engine: a turn cap that ends an agent's
+    # loop without changing its history, so the agent exits normally and its verifier grades the result.
+    # Unset means no cap.
+    max_assistant_turns: Optional[int] = Field(default=None, gt=0)
+
     # Opt in to supplying a verified parent's exact tokens to the engine.
     # Prefix supply requires generation-time prompt_token_ids as proof.
     # Stock vLLM does not support the required_prefix_token_ids extension.
@@ -925,6 +931,11 @@ class VLLMModel(SimpleResponsesAPIModel):
                 res.choices[0].finish_reason = "content_filter"
                 execution.update(response_source="local", local_response_reason="empty_assistant")
                 return res
+        if self.config.max_assistant_turns is not None:
+            assistant_turns = sum(message.get("role") == "assistant" for message in body_dict["messages"])
+            if assistant_turns >= self.config.max_assistant_turns:
+                execution.update(response_source="local", local_response_reason="max_assistant_turns")
+                return self._create_empty_chat_completion()
 
         transport_io_enabled = bool(os.environ.get("NEMO_GYM_VLLM_TRANSPORT_LOG", "").strip())
         log_context = _transport_log_context(request)
