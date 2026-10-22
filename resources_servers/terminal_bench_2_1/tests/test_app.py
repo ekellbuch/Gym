@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import subprocess
+from io import StringIO
 from pathlib import Path
 from shlex import quote
 from shutil import copyfile
@@ -13,6 +14,7 @@ from fastapi import Request
 
 import resources_servers.terminal_bench_2_1.app as terminal_bench_app
 from nemo_gym.openai_utils import NeMoGymResponse
+from nemo_gym.sandbox import SandboxResources
 from nemo_gym.server_utils import SESSION_ID_KEY, ServerClient
 from resources_servers.terminal_bench_2_1.app import (
     _BULLSEYE_SECURITY_SNAPSHOT_SETUP,
@@ -341,3 +343,156 @@ def test_build_free_environment_stages_workdir_and_copies(tmp_path: Path) -> Non
     # So does any instruction beyond WORKDIR and plain-file COPY: such a task needs a prebuilt image.
     (environment / "Dockerfile").write_text("FROM python:3.13-slim-bookworm\nRUN pip install numpy\n")
     assert terminal_bench_app._build_free_environment(tmp_path, "python:3.13-slim-bookworm") is None
+
+
+# The one-task config's fixed size (resources and requests = limits); task.toml sizes replace it with the flag on.
+CONFIG_RESOURCES = {"cpu": 1, "memory_mib": 4096, "disk_gib": 2}
+
+
+def _write_task_toml(task_folder: Path, environment: str) -> Path:
+    task_folder.mkdir(parents=True, exist_ok=True)
+    (task_folder / "task.toml").write_text(f"[agent]\ntimeout_sec = 900.0\n\n[environment]\n{environment}\ngpus = 0\n")
+    return task_folder
+
+
+class TestTaskTomlResources:
+    @pytest.fixture
+    def sandbox(self, monkeypatch) -> AsyncMock:
+        sandbox = AsyncMock()
+        sandbox._handle = SimpleNamespace(sandbox_id="sandbox-id")
+        monkeypatch.setattr(terminal_bench_app, "AsyncSandbox", lambda _provider: sandbox)
+        monkeypatch.setattr(terminal_bench_app, "get_global_config_dict", lambda: {})
+        monkeypatch.setattr(terminal_bench_app, "resolve_provider_config", lambda *_: MagicMock())
+        monkeypatch.setattr(terminal_bench_app, "resolve_provider_metadata", lambda *_: {})
+        return sandbox
+
+    def _server(self, resources_from_task_toml: bool | None) -> TerminalBench21ResourcesServer:
+        sandbox_config = {
+            "resources": dict(CONFIG_RESOURCES),
+            "provider_options": {"resource_requests": dict(CONFIG_RESOURCES)},
+        }
+        if resources_from_task_toml is not None:
+            sandbox_config["resources_from_task_toml"] = resources_from_task_toml
+        return TerminalBench21ResourcesServer(
+            config=TerminalBench21ResourcesServerConfig(
+                sandbox_provider="test",
+                sandbox_config=sandbox_config,
+                host="",
+                port=0,
+                entrypoint="",
+                name="terminal_bench_2_1_resources_server",
+            ),
+            server_client=MagicMock(spec=ServerClient),
+        )
+
+    async def _spec(
+        self, server: TerminalBench21ResourcesServer, sandbox: AsyncMock, task_folder: Path | str, task_name: str
+    ):
+        sandbox.start_with_setup.reset_mock()
+        await server._create_sandbox(
+            TerminalBench21SeedSessionRequest(task_name=task_name, docker_image="image", task_folder=str(task_folder))
+        )
+        return sandbox.start_with_setup.call_args.args[0]
+
+    @pytest.mark.parametrize("resources_from_task_toml", [None, False], ids=["unset", "false"])
+    async def test_flag_off_keeps_the_configured_size(
+        self, sandbox: AsyncMock, tmp_path: Path, resources_from_task_toml: bool | None
+    ) -> None:
+        task_folder = _write_task_toml(tmp_path / "task", "cpus = 4\nmemory_mb = 8192\nstorage_mb = 10240")
+        spec = await self._spec(self._server(resources_from_task_toml), sandbox, task_folder, "terminal-bench/task")
+        assert spec.resources == SandboxResources(cpu=1, memory_mib=4096, disk_gib=2)
+        assert spec.provider_options["resource_requests"] == CONFIG_RESOURCES
+        assert spec.env["OMP_NUM_THREADS"] == "1"
+
+    @pytest.mark.parametrize(
+        "storage_mb,disk_gib",
+        [(10240, 10), (2048, 2), (10241, 11), (500, 1)],
+        ids=["10g", "2g", "round-up", "sub-gib"],
+    )
+    async def test_flag_on_sizes_the_sandbox_from_task_toml(
+        self, sandbox: AsyncMock, tmp_path: Path, storage_mb: int, disk_gib: int
+    ) -> None:
+        task_folder = _write_task_toml(tmp_path / "task", f"cpus = 4\nmemory_mb = 8192\nstorage_mb = {storage_mb}")
+        spec = await self._spec(self._server(True), sandbox, task_folder, "terminal-bench/task")
+        assert spec.resources == SandboxResources(cpu=4, memory_mib=8192, disk_gib=disk_gib)
+        assert spec.provider_options["resource_requests"] == {"cpu": 4, "memory_mib": 8192, "disk_gib": disk_gib}
+        assert spec.env["OMP_NUM_THREADS"] == "4"
+
+    async def test_flag_on_missing_keys_keep_the_configured_values(self, sandbox: AsyncMock, tmp_path: Path) -> None:
+        task_folder = _write_task_toml(tmp_path / "task", "cpus = 2")
+        spec = await self._spec(self._server(True), sandbox, task_folder, "terminal-bench/task")
+        assert spec.resources == SandboxResources(cpu=2, memory_mib=4096, disk_gib=2)
+        assert spec.provider_options["resource_requests"] == {"cpu": 2, "memory_mib": 4096, "disk_gib": 2}
+
+    async def test_flag_on_without_task_toml_keeps_the_configured_size(
+        self, sandbox: AsyncMock, tmp_path: Path
+    ) -> None:
+        spec = await self._spec(self._server(True), sandbox, tmp_path / "no-such-task", "terminal-bench/task")
+        assert spec.resources == SandboxResources(cpu=1, memory_mib=4096, disk_gib=2)
+        assert spec.provider_options["resource_requests"] == CONFIG_RESOURCES
+
+    async def test_flag_on_task_toml_wins_over_the_per_task_requests(self, sandbox: AsyncMock, tmp_path: Path) -> None:
+        task_folder = _write_task_toml(tmp_path / "task", "cpus = 4\nmemory_mb = 8192\nstorage_mb = 10240")
+        server = self._server(True)
+        server.config.sandbox_config["provider_options"] = {}
+        spec = await self._spec(server, sandbox, task_folder, "terminal-bench/mteb-retrieve")
+        assert spec.provider_options["resource_requests"] == {"cpu": 4, "memory_mib": 8192, "disk_gib": 10}
+        # Flag off, the listed task still gets requests = the configured limits.
+        server.config.sandbox_config["resources_from_task_toml"] = False
+        spec = await self._spec(server, sandbox, task_folder, "terminal-bench/mteb-retrieve")
+        assert spec.provider_options["resource_requests"] == {"cpu": 1.0, "memory_mib": 4096, "disk_gib": 2}
+
+    async def test_relative_task_folder_reads_once_and_logs_once(
+        self, sandbox: AsyncMock, tmp_path: Path, monkeypatch
+    ) -> None:
+        _write_task_toml(tmp_path / "tasks" / "task", "cpus = 2\nmemory_mb = 2048\nstorage_mb = 2048")
+        monkeypatch.setattr(terminal_bench_app, "PARENT_DIR", tmp_path)
+        log = StringIO()
+        monkeypatch.setattr(terminal_bench_app, "stderr", log)
+        reads = []
+        load = terminal_bench_app.tomllib.load
+        monkeypatch.setattr(terminal_bench_app.tomllib, "load", lambda f: reads.append(f.name) or load(f))
+        server = self._server(True)
+        for _ in range(2):
+            spec = await self._spec(server, sandbox, "tasks/task", "terminal-bench/task")
+            assert spec.resources == SandboxResources(cpu=2, memory_mib=2048, disk_gib=2)
+        assert len(reads) == 1
+        assert log.getvalue().count("Sandbox size for terminal-bench/task") == 1
+
+    async def test_seed_session_and_golden_patch_verify_use_the_task_size(
+        self, sandbox: AsyncMock, tmp_path: Path
+    ) -> None:
+        task_folder = _write_task_toml(tmp_path / "task", "cpus = 2\nmemory_mb = 2048\nstorage_mb = 10240")
+        expected = SandboxResources(cpu=2, memory_mib=2048, disk_gib=10)
+        sandbox.exec.return_value = SimpleNamespace(stdout="/app\n", stderr="", return_code=0)
+        sandbox.download.side_effect = lambda remote_path, local_path: Path(local_path).write_text("1")
+        server = self._server(True)
+        server._upload_folder = AsyncMock()
+
+        # The agent's sandbox: OpenCode connects to the one seed_session starts.
+        request = MagicMock()
+        request.session = {SESSION_ID_KEY: "test-session"}
+        await server.seed_session(
+            request,
+            TerminalBench21SeedSessionRequest(
+                task_name="terminal-bench/task", docker_image="image", task_folder=str(task_folder)
+            ),
+        )
+        assert sandbox.start_with_setup.call_args.args[0].resources == expected
+
+        # The golden-patch verifier starts its own sandbox.
+        sandbox.start_with_setup.reset_mock()
+        server.config.is_verifying_golden_patch = True
+        body = _verify_request(task_folder, output=[])
+        body.task_name = "terminal-bench/task"
+        await server.verify(request, body)
+        assert sandbox.start_with_setup.call_args.args[0].resources == expected
+
+
+def test_task_toml_resources_of_an_official_task_layout(tmp_path: Path) -> None:
+    (tmp_path / "task.toml").write_text(
+        '[environment]\nbuild_timeout_sec = 600.0\ndocker_image = "alexgshaw/log-summary-date-ranges:20251031"\n'
+        "cpus = 1\nmemory_mb = 2048\nstorage_mb = 10240\ngpus = 0\nallow_internet = true\nmcp_servers = []\n"
+    )
+    assert terminal_bench_app._task_toml_resources(tmp_path) == {"cpu": 1, "memory_mib": 2048, "disk_gib": 10}
+    assert terminal_bench_app._task_toml_resources(tmp_path / "missing") == {}

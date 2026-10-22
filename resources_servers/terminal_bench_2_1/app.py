@@ -1,9 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import tomllib
 from contextlib import contextmanager
 from copy import deepcopy
 from glob import glob
+from math import ceil
 from pathlib import Path, PurePosixPath
 from shlex import join
 from sys import stderr
@@ -75,6 +77,29 @@ def _build_free_environment(task_folder: Path, docker_image: str) -> Optional[Tu
         else:
             return None
     return (workdir, copies) if base == docker_image else None
+
+
+def _task_toml_resources(task_folder: Path) -> Dict[str, int]:
+    """Sandbox size the task's task.toml [environment] asks for, as SandboxResources keys (Harbor's sizing).
+
+    cpus -> cpu, memory_mb -> memory_mib, storage_mb -> disk_gib rounded up to whole GiB. Keys the file does not set
+    are left out, and a folder without a task.toml gives an empty map.
+    """
+    if not task_folder.is_absolute():
+        task_folder = PARENT_DIR / task_folder
+    task_toml = task_folder / "task.toml"
+    if not task_toml.is_file():
+        return {}
+    with task_toml.open("rb") as f:
+        environment = tomllib.load(f).get("environment", {})
+    resources = {}
+    if environment.get("cpus") is not None:
+        resources["cpu"] = environment["cpus"]
+    if environment.get("memory_mb") is not None:
+        resources["memory_mib"] = int(environment["memory_mb"])
+    if environment.get("storage_mb") is not None:
+        resources["disk_gib"] = ceil(environment["storage_mb"] / 1024)
+    return resources
 
 
 class TerminalBench21ResourcesServerConfig(BaseResourcesServerConfig):
@@ -176,6 +201,24 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
         super().model_post_init(context)
 
         self._session_id_to_sandbox: Dict[str, AsyncSandbox] = dict()
+        self._task_folder_to_resources: Dict[str, Dict[str, Any]] = dict()
+
+    def _sandbox_resources(self, verify_request: TerminalBench21SeedSessionRequest) -> Tuple[Dict[str, Any], bool]:
+        """The sandbox resources map and whether it came from the task's task.toml.
+
+        With sandbox_config.resources_from_task_toml, each task.toml [environment] key the task sets replaces the
+        configured value for that field; keys it does not set, or a task without a task.toml, keep the configured ones.
+        """
+        resources = dict(self.config.sandbox_config.get("resources", {}))
+        if not self.config.sandbox_config.get("resources_from_task_toml", False):
+            return resources, False
+        if verify_request.task_folder not in self._task_folder_to_resources:
+            from_toml = _task_toml_resources(Path(verify_request.task_folder))
+            self._task_folder_to_resources[verify_request.task_folder] = from_toml
+            source = "task.toml" if from_toml else "config (no task.toml sizes)"
+            print(f"Sandbox size for {verify_request.task_name}: {resources | from_toml} from {source}", file=stderr)
+        from_toml = self._task_folder_to_resources[verify_request.task_folder]
+        return resources | from_toml, bool(from_toml)
 
     def _patch_sandbox_provider_options_for_instances(
         self, task_name: str, resources: SandboxResources, provider_options: Dict[str, Any]
@@ -200,7 +243,7 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
         global_config_dict = get_global_config_dict()
         resolved_sandbox_provider = resolve_provider_config(self.config.sandbox_provider, global_config_dict)
         provider_default_metadata = resolve_provider_metadata(self.config.sandbox_provider, global_config_dict)
-        resources = dict(self.config.sandbox_config.get("resources", {}))
+        resources, from_task_toml = self._sandbox_resources(verify_request)
 
         # Derive from the final resources map (after the multilingual bump);
         # explicit sandbox_config.env keys win over the derived caps.
@@ -210,9 +253,13 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
             env = cpu_cap_env(sandbox_resources.cpu) | env
 
         provider_options = deepcopy(self.config.sandbox_config.get("provider_options") or {})
-        self._patch_sandbox_provider_options_for_instances(
-            verify_request.task_name, sandbox_resources, provider_options
-        )
+        if from_task_toml:
+            # Requests = limits = the task's own size, as Harbor runs it; this replaces the per-task requests below.
+            provider_options["resource_requests"] = dict(resources)
+        else:
+            self._patch_sandbox_provider_options_for_instances(
+                verify_request.task_name, sandbox_resources, provider_options
+            )
 
         eval_sandbox_spec = SandboxSpec(
             image=verify_request.docker_image,
