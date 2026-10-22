@@ -366,13 +366,17 @@ class TestTaskTomlResources:
         monkeypatch.setattr(terminal_bench_app, "resolve_provider_metadata", lambda *_: {})
         return sandbox
 
-    def _server(self, resources_from_task_toml: bool | None) -> TerminalBench21ResourcesServer:
+    def _server(
+        self, resources_from_task_toml: bool | None, min_memory_mib: int | None = None
+    ) -> TerminalBench21ResourcesServer:
         sandbox_config = {
             "resources": dict(CONFIG_RESOURCES),
             "provider_options": {"resource_requests": dict(CONFIG_RESOURCES)},
         }
         if resources_from_task_toml is not None:
             sandbox_config["resources_from_task_toml"] = resources_from_task_toml
+        if min_memory_mib is not None:
+            sandbox_config["task_toml_min_memory_mib"] = min_memory_mib
         return TerminalBench21ResourcesServer(
             config=TerminalBench21ResourcesServerConfig(
                 sandbox_provider="test",
@@ -441,6 +445,32 @@ class TestTaskTomlResources:
         server.config.sandbox_config["resources_from_task_toml"] = False
         spec = await self._spec(server, sandbox, task_folder, "terminal-bench/mteb-retrieve")
         assert spec.provider_options["resource_requests"] == {"cpu": 1.0, "memory_mib": 4096, "disk_gib": 2}
+
+    @pytest.mark.parametrize(
+        "memory_mb,min_memory_mib,memory_mib",
+        [(2048, 4096, 4096), (8192, 4096, 8192), (2048, None, 2048)],
+        ids=["floor-raises", "above-floor", "unset"],
+    )
+    async def test_flag_on_memory_floor_raises_only_memory(
+        self, sandbox: AsyncMock, tmp_path: Path, memory_mb: int, min_memory_mib: int | None, memory_mib: int
+    ) -> None:
+        task_folder = _write_task_toml(tmp_path / "task", f"cpus = 2\nmemory_mb = {memory_mb}\nstorage_mb = 10240")
+        spec = await self._spec(self._server(True, min_memory_mib), sandbox, task_folder, "terminal-bench/task")
+        assert spec.resources == SandboxResources(cpu=2, memory_mib=memory_mib, disk_gib=10)
+        assert spec.provider_options["resource_requests"] == {"cpu": 2, "memory_mib": memory_mib, "disk_gib": 10}
+
+    async def test_flag_off_ignores_the_memory_floor(self, sandbox: AsyncMock, tmp_path: Path) -> None:
+        task_folder = _write_task_toml(tmp_path / "task", "cpus = 2\nmemory_mb = 2048\nstorage_mb = 10240")
+        spec = await self._spec(self._server(False, 8192), sandbox, task_folder, "terminal-bench/task")
+        assert spec.resources == SandboxResources(cpu=1, memory_mib=4096, disk_gib=2)
+        assert spec.provider_options["resource_requests"] == CONFIG_RESOURCES
+
+    async def test_flag_on_memory_floor_without_task_toml_lifts_config_and_requests(
+        self, sandbox: AsyncMock, tmp_path: Path
+    ) -> None:
+        spec = await self._spec(self._server(True, 8192), sandbox, tmp_path / "no-such-task", "terminal-bench/task")
+        assert spec.resources == SandboxResources(cpu=1, memory_mib=8192, disk_gib=2)
+        assert spec.provider_options["resource_requests"] == {"cpu": 1, "memory_mib": 8192, "disk_gib": 2}
 
     async def test_relative_task_folder_reads_once_and_logs_once(
         self, sandbox: AsyncMock, tmp_path: Path, monkeypatch

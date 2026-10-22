@@ -221,6 +221,7 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
 
         With sandbox_config.resources_from_task_toml, each task.toml [environment] key the task sets replaces the
         configured value for that field; keys it does not set, or a task without a task.toml, keep the configured ones.
+        Under the same flag, sandbox_config.task_toml_min_memory_mib (unset: no floor) raises memory_mib to at least it.
         """
         resources = dict(self.config.sandbox_config.get("resources", {}))
         if not self.config.sandbox_config.get("resources_from_task_toml", False):
@@ -229,9 +230,18 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
             from_toml = _task_toml_resources(self._task_toml(verify_request))
             self._task_folder_to_resources[verify_request.task_folder] = from_toml
             source = "task.toml" if from_toml else "config (no task.toml sizes)"
-            print(f"Sandbox size for {verify_request.task_name}: {resources | from_toml} from {source}", file=stderr)
+            sized = self._with_memory_floor(resources | from_toml)
+            print(f"Sandbox size for {verify_request.task_name}: {sized} from {source}", file=stderr)
         from_toml = self._task_folder_to_resources[verify_request.task_folder]
-        return resources | from_toml, bool(from_toml)
+        return self._with_memory_floor(resources | from_toml), bool(from_toml)
+
+    def _with_memory_floor(self, resources: Dict[str, Any]) -> Dict[str, Any]:
+        """resources with memory_mib raised to sandbox_config.task_toml_min_memory_mib, when that is set and
+        resources_from_task_toml is on; otherwise resources unchanged. CPU and disk are never touched."""
+        floor = self.config.sandbox_config.get("task_toml_min_memory_mib")
+        if floor is None or not self.config.sandbox_config.get("resources_from_task_toml", False):
+            return resources
+        return resources | {"memory_mib": max(int(resources.get("memory_mib") or 0), int(floor))}
 
     def _verify_timeout(self, verify_request: TerminalBench21SeedSessionRequest) -> Optional[float]:
         """Timeout of the task's tests: evaluation_timeout, capped by the task.toml [verifier] timeout_sec.
@@ -287,6 +297,9 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
             self._patch_sandbox_provider_options_for_instances(
                 verify_request.task_name, sandbox_resources, provider_options
             )
+        if (provider_options.get("resource_requests") or {}).get("memory_mib") is not None:
+            # The memory floor also lifts configured requests, so requests never sit below the floored limit.
+            provider_options["resource_requests"] = self._with_memory_floor(provider_options["resource_requests"])
 
         eval_sandbox_spec = SandboxSpec(
             image=verify_request.docker_image,
