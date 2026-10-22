@@ -79,19 +79,24 @@ def _build_free_environment(task_folder: Path, docker_image: str) -> Optional[Tu
     return (workdir, copies) if base == docker_image else None
 
 
-def _task_toml_resources(task_folder: Path) -> Dict[str, int]:
-    """Sandbox size the task's task.toml [environment] asks for, as SandboxResources keys (Harbor's sizing).
-
-    cpus -> cpu, memory_mb -> memory_mib, storage_mb -> disk_gib rounded up to whole GiB. Keys the file does not set
-    are left out, and a folder without a task.toml gives an empty map.
-    """
+def _read_task_toml(task_folder: Path) -> Dict[str, Any]:
+    """The task's parsed task.toml, or an empty map for a folder without one."""
     if not task_folder.is_absolute():
         task_folder = PARENT_DIR / task_folder
     task_toml = task_folder / "task.toml"
     if not task_toml.is_file():
         return {}
     with task_toml.open("rb") as f:
-        environment = tomllib.load(f).get("environment", {})
+        return tomllib.load(f)
+
+
+def _task_toml_resources(task_toml: Dict[str, Any]) -> Dict[str, int]:
+    """Sandbox size a parsed task.toml's [environment] asks for, as SandboxResources keys (Harbor's sizing).
+
+    cpus -> cpu, memory_mb -> memory_mib, storage_mb -> disk_gib rounded up to whole GiB. Keys the file does not set
+    are left out.
+    """
+    environment = task_toml.get("environment", {})
     resources = {}
     if environment.get("cpus") is not None:
         resources["cpu"] = environment["cpus"]
@@ -202,6 +207,14 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
 
         self._session_id_to_sandbox: Dict[str, AsyncSandbox] = dict()
         self._task_folder_to_resources: Dict[str, Dict[str, Any]] = dict()
+        self._task_folder_to_task_toml: Dict[str, Dict[str, Any]] = dict()
+
+    def _task_toml(self, verify_request: TerminalBench21SeedSessionRequest) -> Dict[str, Any]:
+        """The task's parsed task.toml ({} without one), read once per task folder."""
+        if verify_request.task_folder not in self._task_folder_to_task_toml:
+            task_toml = _read_task_toml(Path(verify_request.task_folder))
+            self._task_folder_to_task_toml[verify_request.task_folder] = task_toml
+        return self._task_folder_to_task_toml[verify_request.task_folder]
 
     def _sandbox_resources(self, verify_request: TerminalBench21SeedSessionRequest) -> Tuple[Dict[str, Any], bool]:
         """The sandbox resources map and whether it came from the task's task.toml.
@@ -213,12 +226,26 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
         if not self.config.sandbox_config.get("resources_from_task_toml", False):
             return resources, False
         if verify_request.task_folder not in self._task_folder_to_resources:
-            from_toml = _task_toml_resources(Path(verify_request.task_folder))
+            from_toml = _task_toml_resources(self._task_toml(verify_request))
             self._task_folder_to_resources[verify_request.task_folder] = from_toml
             source = "task.toml" if from_toml else "config (no task.toml sizes)"
             print(f"Sandbox size for {verify_request.task_name}: {resources | from_toml} from {source}", file=stderr)
         from_toml = self._task_folder_to_resources[verify_request.task_folder]
         return resources | from_toml, bool(from_toml)
+
+    def _verify_timeout(self, verify_request: TerminalBench21SeedSessionRequest) -> Optional[float]:
+        """Timeout of the task's tests: evaluation_timeout, capped by the task.toml [verifier] timeout_sec.
+
+        The cap applies with sandbox_config.resources_from_task_toml, as Harbor runs TB2.1. A task.toml without the
+        key, or a task without a task.toml, keeps evaluation_timeout.
+        """
+        timeout = self.config.evaluation_timeout
+        if not self.config.sandbox_config.get("resources_from_task_toml", False):
+            return timeout
+        task_timeout = self._task_toml(verify_request).get("verifier", {}).get("timeout_sec")
+        if task_timeout is None:
+            return timeout
+        return task_timeout if timeout is None else min(timeout, task_timeout)
 
     def _patch_sandbox_provider_options_for_instances(
         self, task_name: str, resources: SandboxResources, provider_options: Dict[str, Any]
@@ -409,6 +436,8 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
 
         if self.config.debug:
             print(f"Running tests for {body.task_name}", file=stderr)
+        test_timeout = self._verify_timeout(body)
+        test_start_time = None
         start_time = time()
         try:
             await self._upload_folder(eval_sandbox, task_folder / "tests", "/tests", TEST_SH_PATCHES, body.task_name)
@@ -419,9 +448,10 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
             # Harbor runs the tests in the image's WORKDIR; a build-free task's WORKDIR is not the container default.
             environment = _build_free_environment(task_folder, body.docker_image)
             test_cwd = {"cwd": environment[0]} if environment and environment[0] else {}
+            test_start_time = time()
             eval_result = await eval_sandbox.exec(
                 "bash /tests/test.sh",
-                timeout_s=self.config.evaluation_timeout,
+                timeout_s=test_timeout,
                 **test_cwd,
             )
             test_output = (eval_result.stderr or "") + (eval_result.stdout or "")
@@ -430,13 +460,22 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
             eval_result = None
             test_output = ""
         verification_time_taken = time() - start_time
+        # Providers return error_type "timeout", raise, or return the killed command's status at the deadline.
+        tests_timed_out = test_start_time is not None and (
+            getattr(eval_result, "error_type", None) == "timeout"
+            or (test_timeout is not None and time() - test_start_time >= test_timeout)
+        )
 
         if self.config.debug:
             print(f"Test output for {body.task_name}: {test_output}", file=stderr)
 
         evaluation_completed = False
         reward = 0.0
-        if eval_result is not None:
+        if tests_timed_out and self.config.sandbox_config.get("resources_from_task_toml", False):
+            # Harbor's verifier timeout: the attempt failed (e.g. the agent left a binary that hangs), not the infra.
+            print(f"Tests of {body.task_name} timed out after {test_timeout}s: reward 0", file=stderr)
+            evaluation_completed = True
+        elif eval_result is not None:
             try:
                 with NamedTemporaryFile(mode="w+", suffix=".txt") as temp_file:
                     await eval_sandbox.download("/logs/verifier/reward.txt", temp_file.name)

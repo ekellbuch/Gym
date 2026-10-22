@@ -494,5 +494,119 @@ def test_task_toml_resources_of_an_official_task_layout(tmp_path: Path) -> None:
         '[environment]\nbuild_timeout_sec = 600.0\ndocker_image = "alexgshaw/log-summary-date-ranges:20251031"\n'
         "cpus = 1\nmemory_mb = 2048\nstorage_mb = 10240\ngpus = 0\nallow_internet = true\nmcp_servers = []\n"
     )
-    assert terminal_bench_app._task_toml_resources(tmp_path) == {"cpu": 1, "memory_mib": 2048, "disk_gib": 10}
-    assert terminal_bench_app._task_toml_resources(tmp_path / "missing") == {}
+    task_toml = terminal_bench_app._read_task_toml(tmp_path)
+    assert terminal_bench_app._task_toml_resources(task_toml) == {"cpu": 1, "memory_mib": 2048, "disk_gib": 10}
+    assert terminal_bench_app._read_task_toml(tmp_path / "missing") == {}
+
+
+def _write_verifier_task_toml(task_folder: Path, timeout_sec: float | None) -> Path:
+    task_folder.mkdir(parents=True, exist_ok=True)
+    verifier = "" if timeout_sec is None else f"\n[verifier]\ntimeout_sec = {timeout_sec}\n"
+    (task_folder / "task.toml").write_text(f"[agent]\ntimeout_sec = 900.0\n{verifier}\n[environment]\ncpus = 1\n")
+    return task_folder
+
+
+class TestVerifierTimeout:
+    def _server(self, resources_from_task_toml: bool, evaluation_timeout: int | None = 3600):
+        return TerminalBench21ResourcesServer(
+            config=TerminalBench21ResourcesServerConfig(
+                sandbox_provider="test",
+                sandbox_config={"resources_from_task_toml": resources_from_task_toml},
+                evaluation_timeout=evaluation_timeout,
+                host="",
+                port=0,
+                entrypoint="",
+                name="",
+            ),
+            server_client=MagicMock(spec=ServerClient),
+        )
+
+    async def _verify(self, server: TerminalBench21ResourcesServer, task_folder: Path, sandbox: MagicMock):
+        server._upload_folder = AsyncMock()
+        server._session_id_to_sandbox["test-session"] = sandbox
+        request = MagicMock()
+        request.session = {SESSION_ID_KEY: "test-session"}
+        return await server.verify(request, _verify_request(task_folder))
+
+    @pytest.mark.parametrize(
+        "flag,evaluation_timeout,timeout_sec,expected",
+        [
+            (True, 3600, 600.0, 600.0),  # fix-config-cache-cpp: 600 s, not 3600 s
+            (True, 3600, 7200.0, 3600),  # evaluation_timeout caps a longer task budget
+            (True, None, 600.0, 600.0),
+            (True, 3600, None, 3600),  # no [verifier] timeout_sec
+            (True, None, None, None),
+            (False, 3600, 600.0, 3600),
+        ],
+        ids=["task-shorter", "config-shorter", "no-config-timeout", "no-task-timeout", "neither", "flag-off"],
+    )
+    def test_verify_timeout_is_the_smaller_of_config_and_task_toml(
+        self, tmp_path: Path, flag: bool, evaluation_timeout: int | None, timeout_sec: float | None, expected
+    ) -> None:
+        task_folder = _write_verifier_task_toml(tmp_path / "task", timeout_sec)
+        request = TerminalBench21SeedSessionRequest(task_name="t", docker_image="i", task_folder=str(task_folder))
+        assert self._server(flag, evaluation_timeout)._verify_timeout(request) == expected
+
+    def test_verify_timeout_without_task_toml_keeps_the_config(self, tmp_path: Path) -> None:
+        request = TerminalBench21SeedSessionRequest(task_name="t", docker_image="i", task_folder=str(tmp_path / "x"))
+        assert self._server(True)._verify_timeout(request) == 3600
+
+    async def test_the_task_timeout_bounds_only_the_test_run(self, tmp_path: Path) -> None:
+        sandbox = MagicMock()
+        sandbox.exec = AsyncMock(return_value=SimpleNamespace(stdout="", stderr="", return_code=0))
+        sandbox.download = AsyncMock(side_effect=lambda remote_path, local_path: Path(local_path).write_text("1"))
+        sandbox.stop = AsyncMock()
+        result = await self._verify(self._server(True), _write_verifier_task_toml(tmp_path / "task", 600.0), sandbox)
+        assert sandbox.exec.await_args_list == [
+            call("mkdir -p /logs/verifier", timeout_s=3600),
+            call("bash /tests/test.sh", timeout_s=600.0),
+        ]
+        assert (result.reward, result.evaluation_completed) == (1.0, True)
+
+    @pytest.mark.parametrize("how", ["error-type", "raises", "killed-at-deadline"])
+    @pytest.mark.parametrize("flag", [True, False], ids=["flag-on", "flag-off"])
+    async def test_timed_out_tests_score_zero(self, tmp_path: Path, monkeypatch, how: str, flag: bool) -> None:
+        clock = iter(range(0, 100_000, 1000))  # every time() call is 1,000 s after the previous one
+        monkeypatch.setattr(terminal_bench_app, "time", lambda: next(clock))
+
+        async def execute(command, **kwargs):
+            if command != "bash /tests/test.sh":
+                return SimpleNamespace(stdout="", stderr="", return_code=0)
+            if how == "raises":
+                raise TimeoutError("command timed out")
+            error_type = "timeout" if how == "error-type" else None
+            return SimpleNamespace(stdout="1 passed", stderr="", return_code=137, error_type=error_type)
+
+        sandbox = MagicMock()
+        sandbox.exec = AsyncMock(side_effect=execute)
+        sandbox.download = AsyncMock(side_effect=FileNotFoundError("/logs/verifier/reward.txt"))
+        sandbox.stop = AsyncMock()
+        task_folder = _write_verifier_task_toml(tmp_path / "task", 600.0)
+        result = await self._verify(self._server(flag), task_folder, sandbox)
+
+        assert result.reward == 0.0
+        # Flag on, a verifier timeout is a failed attempt, as Harbor grades it; flag off it stays incomplete (masked).
+        assert result.evaluation_completed is flag
+        if flag:
+            sandbox.download.assert_not_awaited()
+        sandbox.stop.assert_awaited_once()
+
+    async def test_a_fast_test_failure_is_not_a_timeout(self, tmp_path: Path) -> None:
+        sandbox = MagicMock()
+        sandbox.exec = AsyncMock(return_value=SimpleNamespace(stdout="", stderr="", return_code=1))
+        sandbox.download = AsyncMock(side_effect=FileNotFoundError("/logs/verifier/reward.txt"))
+        sandbox.stop = AsyncMock()
+        result = await self._verify(self._server(True), _write_verifier_task_toml(tmp_path / "task", 600.0), sandbox)
+        assert (result.reward, result.evaluation_completed) == (0.0, False)
+
+    async def test_task_toml_is_read_once_for_size_and_timeout(self, tmp_path: Path, monkeypatch) -> None:
+        reads = []
+        load = terminal_bench_app.tomllib.load
+        monkeypatch.setattr(terminal_bench_app.tomllib, "load", lambda f: reads.append(f.name) or load(f))
+        server = self._server(True)
+        request = TerminalBench21SeedSessionRequest(
+            task_name="t", docker_image="i", task_folder=str(_write_verifier_task_toml(tmp_path / "task", 600.0))
+        )
+        assert server._sandbox_resources(request)[0] == {"cpu": 1}
+        assert server._verify_timeout(request) == 600.0
+        assert len(reads) == 1
