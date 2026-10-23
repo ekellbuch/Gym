@@ -12,7 +12,7 @@ from sys import stderr
 from tempfile import NamedTemporaryFile
 from time import time
 from traceback import format_exc
-from typing import Any, ClassVar, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Mapping, Optional, Tuple
 
 from fastapi import Request
 from pydantic import BaseModel
@@ -216,24 +216,41 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
             self._task_folder_to_task_toml[verify_request.task_folder] = task_toml
         return self._task_folder_to_task_toml[verify_request.task_folder]
 
-    def _sandbox_resources(self, verify_request: TerminalBench21SeedSessionRequest) -> Tuple[Dict[str, Any], bool]:
-        """The sandbox resources map and whether it came from the task's task.toml.
+    def _sandbox_resources(
+        self, verify_request: TerminalBench21SeedSessionRequest
+    ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+        """The sandbox resources (limits) map and the scheduling requests sized from the task's task.toml (None when
+        the flag is off or the task.toml sets no sizes, so the configured requests apply).
 
-        With sandbox_config.resources_from_task_toml, each task.toml [environment] key the task sets replaces the
-        configured value for that field; keys it does not set, or a task without a task.toml, keep the configured ones.
-        Under the same flag, sandbox_config.task_toml_min_memory_mib (unset: no floor) raises memory_mib to at least it.
+        With sandbox_config.resources_from_task_toml, each task.toml [environment] key the task sets is the request for
+        that field; keys it does not set keep the configured request (provider_options.resource_requests, else the
+        configured limit). sandbox_config.task_toml_min_memory_mib (unset: no floor) raises the memory request to at
+        least it. Each limit is max(configured sandbox_config.resources value, request): the task's size is what the
+        scheduler reserves, and the generous configured limits let the sandbox burst past it (the agent runs inside).
         """
-        resources = dict(self.config.sandbox_config.get("resources", {}))
+        limits = dict(self.config.sandbox_config.get("resources", {}))
         if not self.config.sandbox_config.get("resources_from_task_toml", False):
-            return resources, False
-        if verify_request.task_folder not in self._task_folder_to_resources:
-            from_toml = _task_toml_resources(self._task_toml(verify_request))
-            self._task_folder_to_resources[verify_request.task_folder] = from_toml
-            source = "task.toml" if from_toml else "config (no task.toml sizes)"
-            sized = self._with_memory_floor(resources | from_toml)
-            print(f"Sandbox size for {verify_request.task_name}: {sized} from {source}", file=stderr)
+            return limits, None
+        configured_requests = (self.config.sandbox_config.get("provider_options") or {}).get("resource_requests")
+        if not isinstance(configured_requests, Mapping):
+            configured_requests = {}
+        first_read = verify_request.task_folder not in self._task_folder_to_resources
+        if first_read:
+            self._task_folder_to_resources[verify_request.task_folder] = _task_toml_resources(
+                self._task_toml(verify_request)
+            )
         from_toml = self._task_folder_to_resources[verify_request.task_folder]
-        return self._with_memory_floor(resources | from_toml), bool(from_toml)
+        requests = self._with_memory_floor(limits | dict(configured_requests) | from_toml)
+        for key, request in requests.items():
+            limit = limits.get(key)
+            limits[key] = request if limit is None or request is None else max(limit, request)
+        if first_read:
+            source = "task.toml" if from_toml else "config (no task.toml sizes)"
+            print(
+                f"Sandbox size for {verify_request.task_name}: requests {requests}, limits {limits} from {source}",
+                file=stderr,
+            )
+        return limits, (requests if from_toml else None)
 
     def _with_memory_floor(self, resources: Dict[str, Any]) -> Dict[str, Any]:
         """resources with memory_mib raised to sandbox_config.task_toml_min_memory_mib, when that is set and
@@ -280,25 +297,25 @@ class TerminalBench21ResourcesServer(SimpleResourcesServer):
         global_config_dict = get_global_config_dict()
         resolved_sandbox_provider = resolve_provider_config(self.config.sandbox_provider, global_config_dict)
         provider_default_metadata = resolve_provider_metadata(self.config.sandbox_provider, global_config_dict)
-        resources, from_task_toml = self._sandbox_resources(verify_request)
+        resources, task_toml_requests = self._sandbox_resources(verify_request)
 
-        # Derive from the final resources map (after the multilingual bump);
-        # explicit sandbox_config.env keys win over the derived caps.
+        # Derive from the final resources map (after the multilingual bump); the caps follow the CPU limit, what the
+        # sandbox may use, not the request. Explicit sandbox_config.env keys win over the derived caps.
         sandbox_resources = SandboxResources.from_mapping(resources)
         env = dict(self.config.sandbox_config.get("env", {}))
         if self.config.sandbox_config.get("derive_cpu_env", True):
             env = cpu_cap_env(sandbox_resources.cpu) | env
 
         provider_options = deepcopy(self.config.sandbox_config.get("provider_options") or {})
-        if from_task_toml:
-            # Requests = limits = the task's own size, as Harbor runs it; this replaces the per-task requests below.
-            provider_options["resource_requests"] = dict(resources)
+        if task_toml_requests is not None:
+            # Requests = the task's own size (limits stay at least the configured ones); replaces the per-task requests.
+            provider_options["resource_requests"] = task_toml_requests
         else:
             self._patch_sandbox_provider_options_for_instances(
                 verify_request.task_name, sandbox_resources, provider_options
             )
         if (provider_options.get("resource_requests") or {}).get("memory_mib") is not None:
-            # The memory floor also lifts configured requests, so requests never sit below the floored limit.
+            # Without task.toml sizes the memory floor lifts the configured requests too (limits already cover it).
             provider_options["resource_requests"] = self._with_memory_floor(provider_options["resource_requests"])
 
         eval_sandbox_spec = SandboxSpec(

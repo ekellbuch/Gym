@@ -347,6 +347,9 @@ def test_build_free_environment_stages_workdir_and_copies(tmp_path: Path) -> Non
 
 # The one-task config's fixed size (resources and requests = limits); task.toml sizes replace it with the flag on.
 CONFIG_RESOURCES = {"cpu": 1, "memory_mib": 4096, "disk_gib": 2}
+# configs/terminal_bench_2_1.yaml: generous limits, small scheduling requests.
+GYM_LIMITS = {"cpu": 4, "memory_mib": 16384, "disk_gib": 30}
+GYM_REQUESTS = {"cpu": 0.5, "memory_mib": 512, "disk_gib": 30}
 
 
 def _write_task_toml(task_folder: Path, environment: str) -> Path:
@@ -367,11 +370,15 @@ class TestTaskTomlResources:
         return sandbox
 
     def _server(
-        self, resources_from_task_toml: bool | None, min_memory_mib: int | None = None
+        self,
+        resources_from_task_toml: bool | None,
+        min_memory_mib: int | None = None,
+        limits: dict | None = None,
+        requests: dict | None = None,
     ) -> TerminalBench21ResourcesServer:
         sandbox_config = {
-            "resources": dict(CONFIG_RESOURCES),
-            "provider_options": {"resource_requests": dict(CONFIG_RESOURCES)},
+            "resources": dict(limits or CONFIG_RESOURCES),
+            "provider_options": {"resource_requests": dict(requests or CONFIG_RESOURCES)},
         }
         if resources_from_task_toml is not None:
             sandbox_config["resources_from_task_toml"] = resources_from_task_toml
@@ -418,7 +425,8 @@ class TestTaskTomlResources:
     ) -> None:
         task_folder = _write_task_toml(tmp_path / "task", f"cpus = 4\nmemory_mb = 8192\nstorage_mb = {storage_mb}")
         spec = await self._spec(self._server(True), sandbox, task_folder, "terminal-bench/task")
-        assert spec.resources == SandboxResources(cpu=4, memory_mib=8192, disk_gib=disk_gib)
+        # The limits never drop below the configured ones (disk 2).
+        assert spec.resources == SandboxResources(cpu=4, memory_mib=8192, disk_gib=max(2, disk_gib))
         assert spec.provider_options["resource_requests"] == {"cpu": 4, "memory_mib": 8192, "disk_gib": disk_gib}
         assert spec.env["OMP_NUM_THREADS"] == "4"
 
@@ -456,7 +464,7 @@ class TestTaskTomlResources:
     ) -> None:
         task_folder = _write_task_toml(tmp_path / "task", f"cpus = 2\nmemory_mb = {memory_mb}\nstorage_mb = 10240")
         spec = await self._spec(self._server(True, min_memory_mib), sandbox, task_folder, "terminal-bench/task")
-        assert spec.resources == SandboxResources(cpu=2, memory_mib=memory_mib, disk_gib=10)
+        assert spec.resources == SandboxResources(cpu=2, memory_mib=max(4096, memory_mib), disk_gib=10)
         assert spec.provider_options["resource_requests"] == {"cpu": 2, "memory_mib": memory_mib, "disk_gib": 10}
 
     async def test_flag_off_ignores_the_memory_floor(self, sandbox: AsyncMock, tmp_path: Path) -> None:
@@ -472,6 +480,60 @@ class TestTaskTomlResources:
         assert spec.resources == SandboxResources(cpu=1, memory_mib=8192, disk_gib=2)
         assert spec.provider_options["resource_requests"] == {"cpu": 1, "memory_mib": 8192, "disk_gib": 2}
 
+    @pytest.mark.parametrize(
+        "environment",
+        [
+            "cpus = 1\nmemory_mb = 2048\nstorage_mb = 10240",
+            "cpus = 8\nmemory_mb = 32768\nstorage_mb = 51200",
+            "cpus = 0.5\nmemory_mb = 512\nstorage_mb = 500",
+            "memory_mb = 65536",
+        ],
+        ids=["small", "large", "tiny", "memory-only"],
+    )
+    async def test_flag_on_limits_never_below_requests(
+        self, sandbox: AsyncMock, tmp_path: Path, environment: str
+    ) -> None:
+        task_folder = _write_task_toml(tmp_path / "task", environment)
+        server = self._server(True, 4096, limits=GYM_LIMITS, requests=GYM_REQUESTS)
+        spec = await self._spec(server, sandbox, task_folder, "terminal-bench/task")
+        requests = spec.provider_options["resource_requests"]
+        for key, request in requests.items():
+            assert getattr(spec.resources, key) >= request
+            assert getattr(spec.resources, key) >= GYM_LIMITS[key]
+
+    async def test_flag_on_keeps_the_configured_16g_limit_for_a_2g_task(
+        self, sandbox: AsyncMock, tmp_path: Path
+    ) -> None:
+        task_folder = _write_task_toml(tmp_path / "task", "cpus = 1\nmemory_mb = 2048\nstorage_mb = 10240")
+        server = self._server(True, limits=GYM_LIMITS, requests=GYM_REQUESTS)
+        spec = await self._spec(server, sandbox, task_folder, "terminal-bench/task")
+        assert spec.resources == SandboxResources(cpu=4, memory_mib=16384, disk_gib=30)
+        assert spec.provider_options["resource_requests"] == {"cpu": 1, "memory_mib": 2048, "disk_gib": 10}
+        # The CPU caps follow the limit: what the processes may use.
+        assert spec.env["OMP_NUM_THREADS"] == "4"
+
+    async def test_flag_on_a_32g_task_raises_the_limit(self, sandbox: AsyncMock, tmp_path: Path) -> None:
+        task_folder = _write_task_toml(tmp_path / "task", "cpus = 8\nmemory_mb = 32768\nstorage_mb = 51200")
+        server = self._server(True, limits=GYM_LIMITS, requests=GYM_REQUESTS)
+        spec = await self._spec(server, sandbox, task_folder, "terminal-bench/task")
+        assert spec.resources == SandboxResources(cpu=8, memory_mib=32768, disk_gib=50)
+        assert spec.provider_options["resource_requests"] == {"cpu": 8, "memory_mib": 32768, "disk_gib": 50}
+        assert spec.env["OMP_NUM_THREADS"] == "8"
+
+    async def test_flag_on_memory_floor_applies_to_the_request(self, sandbox: AsyncMock, tmp_path: Path) -> None:
+        task_folder = _write_task_toml(tmp_path / "task", "cpus = 1\nmemory_mb = 2048\nstorage_mb = 10240")
+        server = self._server(True, 4096, limits=GYM_LIMITS, requests=GYM_REQUESTS)
+        spec = await self._spec(server, sandbox, task_folder, "terminal-bench/task")
+        assert spec.resources == SandboxResources(cpu=4, memory_mib=16384, disk_gib=30)
+        assert spec.provider_options["resource_requests"] == {"cpu": 1, "memory_mib": 4096, "disk_gib": 10}
+
+    async def test_flag_on_missing_keys_keep_the_configured_requests(self, sandbox: AsyncMock, tmp_path: Path) -> None:
+        task_folder = _write_task_toml(tmp_path / "task", "memory_mb = 2048")
+        server = self._server(True, limits=GYM_LIMITS, requests=GYM_REQUESTS)
+        spec = await self._spec(server, sandbox, task_folder, "terminal-bench/task")
+        assert spec.resources == SandboxResources(cpu=4, memory_mib=16384, disk_gib=30)
+        assert spec.provider_options["resource_requests"] == {"cpu": 0.5, "memory_mib": 2048, "disk_gib": 30}
+
     async def test_relative_task_folder_reads_once_and_logs_once(
         self, sandbox: AsyncMock, tmp_path: Path, monkeypatch
     ) -> None:
@@ -485,7 +547,7 @@ class TestTaskTomlResources:
         server = self._server(True)
         for _ in range(2):
             spec = await self._spec(server, sandbox, "tasks/task", "terminal-bench/task")
-            assert spec.resources == SandboxResources(cpu=2, memory_mib=2048, disk_gib=2)
+            assert spec.resources == SandboxResources(cpu=2, memory_mib=4096, disk_gib=2)
         assert len(reads) == 1
         assert log.getvalue().count("Sandbox size for terminal-bench/task") == 1
 
@@ -493,7 +555,7 @@ class TestTaskTomlResources:
         self, sandbox: AsyncMock, tmp_path: Path
     ) -> None:
         task_folder = _write_task_toml(tmp_path / "task", "cpus = 2\nmemory_mb = 2048\nstorage_mb = 10240")
-        expected = SandboxResources(cpu=2, memory_mib=2048, disk_gib=10)
+        expected = SandboxResources(cpu=2, memory_mib=4096, disk_gib=10)
         sandbox.exec.return_value = SimpleNamespace(stdout="/app\n", stderr="", return_code=0)
         sandbox.download.side_effect = lambda remote_path, local_path: Path(local_path).write_text("1")
         server = self._server(True)
