@@ -456,9 +456,45 @@ class TestApp:
             )
 
         assert response.reward == 0.0
+        assert response.mask_sample is True
+        assert response.instance_config == {"mask_sample": True}
+        assert response.failure_kind == "agent_run_error"
         assert len(response.response.output) == 0
         assert response.responses_create_params.temperature == 0.3
         assert response.responses_create_params.input == []
+
+    async def test_run_masks_sandbox_oom_without_verifier_reward(self):
+        server = _make_server()
+        trial_result = {
+            **DEFAULT_TRIAL_RESULT,
+            "verifier_result": None,
+            "exception_info": {
+                "exception_type": "SandboxApiException",
+                "exception_message": "Sandbox ended (OOMKilled)",
+            },
+        }
+        with _harbor_run_mocks(trial_result=trial_result):
+            response = await server.run(_make_run_request())
+
+        assert response.reward == 0.0
+        assert response.mask_sample is True
+        assert response.instance_config == {"mask_sample": True}
+        assert response.failure_kind == "provider_oom_killed"
+
+    @pytest.mark.parametrize("exception_info", [None, {"exception_type": "AgentTimeoutError"}])
+    async def test_run_keeps_scored_zero_unmasked(self, exception_info):
+        server = _make_server()
+        trial_result = {
+            **DEFAULT_TRIAL_RESULT,
+            "verifier_result": {"rewards": {"reward": 0.0}},
+            "exception_info": exception_info,
+        }
+        with _harbor_run_mocks(trial_result=trial_result):
+            response = await server.run(_make_run_request())
+
+        assert response.reward == 0.0
+        assert response.mask_sample is False
+        assert response.failure_kind is None
 
     @pytest.mark.parametrize(
         "model_name, expected",
