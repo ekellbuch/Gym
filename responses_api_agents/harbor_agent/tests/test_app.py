@@ -283,7 +283,7 @@ def _harbor_run_mocks(
         patch("responses_api_agents.harbor_agent.app.get_global_config_dict") as mock_gc,
         patch("responses_api_agents.harbor_agent.app.runner_ray_remote") as mock_ray,
         patch("asyncio.to_thread") as mock_to_thread,
-        patch.object(HarborAgent, "_build_job_config", return_value={"job_name": "mock_job"}),
+        patch.object(HarborAgent, "_build_job_config", return_value={"job_name": "mock_job"}) as mock_build,
     ):
         mock_gc.return_value = _GLOBAL_CONFIG
 
@@ -312,7 +312,7 @@ def _harbor_run_mocks(
 
         mock_to_thread.side_effect = _run_inline
 
-        yield
+        yield mock_build
 
 
 # ===========================================================================
@@ -321,6 +321,19 @@ def _harbor_run_mocks(
 
 
 class TestApp:
+    async def test_run_passes_capture_prefixed_model_url_to_ray_job(self):
+        server = _make_server()
+        request = HarborRunRequest.model_validate(
+            {**_make_run_request().model_dump(), "_ng_rollout_id": "rollout-capture-123"}
+        )
+
+        with _harbor_run_mocks(trajectory=DEFAULT_TRAJECTORY) as mock_build:
+            await server.run(request)
+
+        assert mock_build.call_args.args[3] == (
+            "http://policy-host:9000/ng-rollout/rollout-capture-123/training-token-capture/v1"
+        )
+
     def test_setup_webserver_registers_aggregate_metrics_route(self):
         # Regression test: HarborAgent.setup_webserver() replaces (rather than extends)
         # SimpleResponsesAPIAgent.setup_webserver(), so /aggregate_metrics must be
