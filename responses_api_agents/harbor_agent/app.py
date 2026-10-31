@@ -276,6 +276,7 @@ class HarborAgent(SimpleResponsesAPIAgent):
                 responses_create_params=responses_create_params,
             )
 
+            run_error: str | None = None
             try:
                 params = dict(
                     job_config_dict=job_config_dict,
@@ -318,6 +319,7 @@ class HarborAgent(SimpleResponsesAPIAgent):
 
             except Exception as e:
                 print(f"Error running Harbor job: {e}")
+                run_error = str(e)
                 trial_result = None
                 trajectory = None
                 agent_error_flags = {}
@@ -325,6 +327,27 @@ class HarborAgent(SimpleResponsesAPIAgent):
                 input_messages = []
                 usage = None
                 reward = 0.0
+
+            exception_info = (trial_result or {}).get("exception_info") or {}
+            verifier_result = (trial_result or {}).get("verifier_result") or {}
+            rewards = verifier_result.get("rewards") if isinstance(verifier_result, dict) else None
+            mask_sample = not isinstance(rewards, dict) or not rewards
+            failure_reason = (
+                (exception_info.get("exception_message") or run_error or "Verifier returned no reward")
+                if mask_sample
+                else None
+            )
+            if mask_sample:
+                if "OOMKilled" in failure_reason:
+                    failure_kind = "provider_oom_killed"
+                elif exception_info.get("exception_type") == "SandboxApiException":
+                    failure_kind = "provider_unavailable"
+                elif run_error:
+                    failure_kind = "agent_run_error"
+                else:
+                    failure_kind = "verifier_error"
+            else:
+                failure_kind = None
 
             response = HarborAgentUtils.get_default_response_object()
             response["model"] = policy_model_name
@@ -345,6 +368,10 @@ class HarborAgent(SimpleResponsesAPIAgent):
                 response=response,
                 instance_id=instance_id,
                 metadata=trial_result if trial_result else {},
+                mask_sample=mask_sample,
+                failure_kind=failure_kind,
+                failure_reason=failure_reason[:2000] if failure_reason else None,
+                instance_config={"mask_sample": True} if mask_sample else {},
                 context_length_exceeded_error=int(agent_error_flags.get("context_length_exceeded", False)),
                 memory_limit_exceeded_error=int(agent_error_flags.get("memory_limit_exceeded", False)),
                 agent_timeout_error=int(
