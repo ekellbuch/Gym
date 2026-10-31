@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import json
+import sys
 import tempfile
 from asyncio import Semaphore
 from contextlib import contextmanager
@@ -22,9 +23,11 @@ from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from hydra._internal.utils import get_args_parser
 
 from nemo_gym.base_resources_server import AggregateMetricsRequest
 from nemo_gym.openai_utils import NeMoGymResponseCreateParamsNonStreaming
+from responses_api_agents.harbor_agent import app as harbor_app
 from responses_api_agents.harbor_agent.app import (
     HarborAgent,
     HarborAgentConfig,
@@ -860,3 +863,36 @@ class TestLLMClientTeardown:
         # Idempotent: a second close is a no-op (no underlying client to touch).
         await llm.aclose()
         client.aclose.assert_awaited_once()
+
+
+@pytest.mark.parametrize("raises", [False, True])
+def test_harbor_ray_worker_does_not_pass_ray_flags_to_hydra(monkeypatch, raises: bool) -> None:
+    assert harbor_app.__file__ == str(Path(__file__).resolve().parents[1] / "app.py")
+    worker_argv = [
+        "default_worker.py",
+        "--node-ip-address=10.0.0.1",
+        "--node-manager-port=1301",
+        "--object-store-name=/tmp/ray/plasma_store",
+    ]
+    monkeypatch.setattr(sys, "argv", worker_argv)
+    monkeypatch.setattr(harbor_app, "_RAY_WORKER_EVENT_LOOP", None)
+    started = []
+
+    async def start_harbor_job(job_config_dict):
+        get_args_parser().parse_args()
+        started.append(job_config_dict["job_name"])
+        if raises:
+            raise RuntimeError("job failed")
+        return "/tmp/harbor/task_trial"
+
+    monkeypatch.setattr(harbor_app, "run_harbor_job", start_harbor_job)
+    try:
+        if raises:
+            with pytest.raises(RuntimeError, match="job failed"):
+                harbor_app._run_harbor_job_sync({"job_name": "ray-task"})
+        else:
+            assert harbor_app._run_harbor_job_sync({"job_name": "ray-task"}) == "/tmp/harbor/task_trial"
+        assert started == ["ray-task"]
+        assert sys.argv is worker_argv
+    finally:
+        harbor_app._RAY_WORKER_EVENT_LOOP.close()

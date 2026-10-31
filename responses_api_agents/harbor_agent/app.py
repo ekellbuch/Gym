@@ -200,7 +200,14 @@ def _run_harbor_job_sync(job_config_dict: dict) -> str:
     if _RAY_WORKER_EVENT_LOOP is None or _RAY_WORKER_EVENT_LOOP.is_closed():
         _RAY_WORKER_EVENT_LOOP = asyncio.new_event_loop()
         asyncio.set_event_loop(_RAY_WORKER_EVENT_LOOP)
-    return _RAY_WORKER_EVENT_LOOP.run_until_complete(run_harbor_job(job_config_dict))
+    # Harbor's Hydra config loader reads sys.argv; Ray's worker flags are not
+    # Harbor CLI arguments. One Ray function runs at a time in this worker.
+    worker_argv = sys.argv
+    sys.argv = [worker_argv[0]]
+    try:
+        return _RAY_WORKER_EVENT_LOOP.run_until_complete(run_harbor_job(job_config_dict))
+    finally:
+        sys.argv = worker_argv
 
 
 @ray.remote(
