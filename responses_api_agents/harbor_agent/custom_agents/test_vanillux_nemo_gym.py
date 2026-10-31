@@ -22,10 +22,10 @@ CONFIG = Path(__file__).parents[1] / "configs" / "harbor_agent_tmax_vanillux.yam
 TRAIN_CONFIG = Path(__file__).parents[1] / "configs" / "harbor_agent_tmax_vanillux_train.yaml"
 
 
-def _llm(**kwargs):
+def _llm(*, api_base="http://localhost:8000/v1", **kwargs):
     return VanilluxNemoGymLLM(
         model_name="test-model",
-        api_base="http://localhost:8000/v1",
+        api_base=api_base,
         collect_rollout_details=True,
         **kwargs,
     )
@@ -77,6 +77,39 @@ def test_response_budget_caps_each_request(monkeypatch) -> None:
     assert llm.total_generated_tokens == 3
     with pytest.raises(RuntimeError, match="exhausted"):
         asyncio.run(llm.call("three"))
+
+
+def test_captured_response_uses_usage_for_budget_without_inline_tokens(monkeypatch) -> None:
+    requested = []
+
+    async def fake_call(self, prompt, message_history=None, **kwargs):
+        requested.append(self._extra_chat_params["max_tokens"])
+        self._last_prompt_token_ids = None
+        self._last_completion_token_ids = None
+        self._last_logprobs = None
+        return SimpleNamespace(content="ok", usage=SimpleNamespace(completion_tokens=requested[-1]))
+
+    monkeypatch.setattr(NemoGymLLM, "call", fake_call)
+    llm = _llm(
+        api_base="http://localhost:8000/ng-rollout/r1/training-token-capture/v1",
+        max_total_response_tokens=3,
+        max_turn_output_tokens=2,
+    )
+    asyncio.run(llm.call("one"))
+    assert llm.total_generated_tokens == 2
+    asyncio.run(llm.call("two"))
+    assert requested == [2, 1]
+    assert llm.total_generated_tokens == 3
+
+
+def test_captured_response_requires_token_usage(monkeypatch) -> None:
+    async def fake_call(self, prompt, message_history=None, **kwargs):
+        return SimpleNamespace(content="ok", usage=None)
+
+    monkeypatch.setattr(NemoGymLLM, "call", fake_call)
+    llm = _llm(api_base="http://localhost:8000/ng-rollout/r1/training-token-capture/v1")
+    with pytest.raises(ValueError, match="missing completion token usage"):
+        asyncio.run(llm.call("one"))
 
 
 def test_bash_call_has_120_second_limit_without_shortening_verifier(tmp_path) -> None:

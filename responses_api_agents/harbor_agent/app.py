@@ -43,6 +43,7 @@ from nemo_gym.openai_utils import (
     NeMoGymResponse,
     NeMoGymResponseCreateParamsNonStreaming,
 )
+from nemo_gym.server_utils import apply_rollout_prefix
 from responses_api_agents.harbor_agent.utils import HarborAgentUtils
 
 
@@ -249,7 +250,7 @@ class HarborAgent(SimpleResponsesAPIAgent):
             global_config_dict = get_global_config_dict()
 
             policy_model_name = global_config_dict["policy_model_name"]
-            base_url = self._resolve_model_base_url(global_config_dict)
+            base_url = self._resolve_model_base_url(global_config_dict, body.capture_rollout_id)
             run_timestamp = datetime.now(timezone.utc)
             run_id = self._build_run_id(run_timestamp)
 
@@ -411,14 +412,15 @@ class HarborAgent(SimpleResponsesAPIAgent):
         sanitized = sanitized.strip("._")
         return sanitized or "unknown"
 
-    def _resolve_model_base_url(self, global_config_dict: Any) -> str:
+    def _resolve_model_base_url(self, global_config_dict: Any, rollout_id: str | None = None) -> str:
         """Resolve model base URL from required model_server reference."""
         server_name = self.config.model_server.name
         model_server_config = get_first_server_config_dict(
             global_config_dict,
             server_name,
         )
-        return f"http://{model_server_config['host']}:{model_server_config['port']}/v1"
+        root_url = f"http://{model_server_config['host']}:{model_server_config['port']}"
+        return f"{apply_rollout_prefix(root_url, rollout_id, token_capture=True)}/v1"
 
     def _build_job_config(
         self,

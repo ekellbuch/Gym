@@ -5,12 +5,14 @@
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from harbor.llms.base import BaseLLM
 from harbor.models.agent.context import AgentContext
 from overfit_tbench.agents import vanillux
 from overfit_tbench.agents.vanillux_harbor import VanilluxAgent
 
+from nemo_gym.config_types import ROLLOUT_PATH_PREFIX, TOKEN_CAPTURE_PATH_SEGMENT
 from responses_api_agents.harbor_agent.custom_agents.llms.nemo_gym_llm import NemoGymLLM
 
 
@@ -30,6 +32,8 @@ class VanilluxNemoGymLLM(NemoGymLLM):
         self.max_turn_output_tokens = max_turn_output_tokens
         self.total_generated_tokens = 0
         super().__init__(**kwargs)
+        path = urlsplit(self._api_base).path
+        self._capture_mode = f"/{ROLLOUT_PATH_PREFIX}/" in path and f"/{TOKEN_CAPTURE_PATH_SEGMENT}/" in path
 
     def _build_extra_chat_params(self, responses_create_params: dict[str, Any]) -> dict[str, Any]:
         params = super()._build_extra_chat_params(responses_create_params)
@@ -59,9 +63,15 @@ class VanilluxNemoGymLLM(NemoGymLLM):
         prompt_ids = self._last_prompt_token_ids
         token_ids = self._last_completion_token_ids
         logprobs = self._last_logprobs
-        if not prompt_ids or not token_ids or logprobs is None or len(token_ids) != len(logprobs):
-            raise ValueError("Vanillux rollout has missing or unaligned token IDs and behavior logprobs")
-        self.total_generated_tokens += len(token_ids)
+        if self._capture_mode:
+            count = response.usage.completion_tokens if response.usage is not None else None
+            if not isinstance(count, int) or count <= 0:
+                raise ValueError("Captured Vanillux response is missing completion token usage")
+            self.total_generated_tokens += count
+        else:
+            if not prompt_ids or not token_ids or logprobs is None or len(token_ids) != len(logprobs):
+                raise ValueError("Vanillux rollout has missing or unaligned token IDs and behavior logprobs")
+            self.total_generated_tokens += len(token_ids)
         return response
 
 
