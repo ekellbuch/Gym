@@ -19,6 +19,7 @@ from responses_api_agents.harbor_agent.custom_agents.vanillux_nemo_gym import (
 
 
 CONFIG = Path(__file__).parents[1] / "configs" / "harbor_agent_tmax_vanillux.yaml"
+TRAIN_CONFIG = Path(__file__).parents[1] / "configs" / "harbor_agent_tmax_vanillux_train.yaml"
 
 
 def _llm(**kwargs):
@@ -95,5 +96,12 @@ def test_bash_call_has_120_second_limit_without_shortening_verifier(tmp_path) ->
 
     config = yaml.safe_load(CONFIG.read_text())["harbor_agent"]["responses_api_agents"]["harbor_agent"]
     assert config["harbor_environment_kwargs"]["default_exec_timeout_s"] == 600
-    assert config["harbor_verifier_override_timeout"] == 600
+    assert config["harbor_verifier_override_timeout"] is None
+    assert config["harbor_agent_override_timeout"] is None
+    assert config["harbor_environment_kwargs"]["override_cpus"] is None
+    assert config["harbor_environment_kwargs"]["override_memory_mb"] is None
+    assert config["harbor_agent_kwargs"]["model_info"]["max_input_tokens"] == 51200
     assert config["harbor_agent_kwargs"]["max_turns"] == 64
+    training = yaml.safe_load(TRAIN_CONFIG.read_text())["harbor_agent"]["responses_api_agents"]["harbor_agent"]
+    assert training["harbor_agent_override_timeout"] == 14400
+    assert training["harbor_verifier_override_timeout"] == 600

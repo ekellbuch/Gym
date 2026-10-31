@@ -1,0 +1,9 @@
+# Compose after harbor_agent_tmax_vanillux.yaml for the published training
+# condition. Unlike evaluation, the TMax Vanillux environment does not apply
+# task.toml's 600s agent clock and floors verifier execution at 600s.
+harbor_agent:
+  responses_api_agents:
+    harbor_agent:
+      # Operational safety bound; not a paper hyperparameter.
+      harbor_agent_override_timeout: 14400
+      harbor_verifier_override_timeout: 600

@@ -32,7 +32,9 @@ harbor_agent:
         verification_reward: 1.0
         nemo_model_server_timeout_sec: 2400
         model_info:
-          max_input_tokens: 73728
+          # The selected policy server permits 67,584 total tokens; reserve one
+          # full 16,384-token generation rather than filling its input window.
+          max_input_tokens: 51200
           max_output_tokens: 16384
           input_cost_per_token: 0.0
           output_cost_per_token: 0.0
@@ -45,21 +47,24 @@ harbor_agent:
           harbor-benchmark: tmax-15k
         sandbox_ttl_s: 21600
         sandbox_ready_timeout_s: 900
-        # Harbor's verifier does not pass timeout_sec to exec. Keep this at its
-        # effective 600s budget; Vanillux passes 120s on Bash calls explicitly.
+        # Harbor's verifier does not pass timeout_sec to exec. This ceiling
+        # allows the training overlay's 600s verifier; Vanillux separately
+        # caps its Bash tool calls at 120s.
         default_exec_timeout_s: 600
-        override_cpus: 1
-        override_memory_mb: 2048
-        override_storage_mb: 2048
+        # Use each task.toml's resource request, including any future variant.
+        override_cpus: null
+        override_memory_mb: null
+        override_storage_mb: null
         cpu_pin_enabled: false
 
       model_server:
         type: responses_api_models
         name: policy_model
 
-      # The paper has no separate agent wall clock; this is a safety bound.
-      harbor_agent_override_timeout: 14400
-      harbor_verifier_override_timeout: 600
+      # Evaluation uses task.toml's default clocks. The training overlay changes
+      # the verifier to the released Vanillux environment's effective 600s.
+      harbor_agent_override_timeout: null
+      harbor_verifier_override_timeout: null
       harbor_timeout_multiplier: null
       harbor_jobs_dir: ${oc.env:RUN_DIR}/gym/harbor_jobs
 
