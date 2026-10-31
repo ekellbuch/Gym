@@ -1,0 +1,72 @@
+# TMax-15K training with the paper's Vanillux Bash agent. The input JSONL must
+# use instance_id=tmax::<task_dir_name> and agent_ref.name=harbor_agent.
+# The provider and policy_model configs are composed separately by the caller.
+harbor_agent:
+  responses_api_agents:
+    harbor_agent:
+      entrypoint: app.py
+      domain: agent
+      description: TMax-15K Vanillux agent through Harbor.
+      value: Train and evaluate terminal-task models with the released TMax agent.
+      concurrency: 64
+      harbor_ray_task_num_cpus: 0.25
+
+      harbor_datasets:
+        tmax:
+          # Directory containing task_000000_.../, not its parent or a JSONL.
+          local_dataset_path: ${oc.env:TMAX15K_TASKS_DIR}
+
+      harbor_agent_name: null
+      harbor_agent_import_path: responses_api_agents.harbor_agent.custom_agents.vanillux_nemo_gym:VanilluxNemoGym
+      harbor_agent_kwargs:
+        max_turns: 64
+        max_total_response_tokens: 65536
+        max_turn_output_tokens: 16384
+        bash_timeout_sec: 120
+        temperature: 1.0
+        tool_parser: vllm_qwen3_xml
+        collect_rollout_details: true
+        last_step_warning: false
+        append_turns_remaining: false
+        tool_call_format_error_feedback: false
+        verification_reward: 1.0
+        nemo_model_server_timeout_sec: 2400
+        model_info:
+          max_input_tokens: 73728
+          max_output_tokens: 16384
+          input_cost_per_token: 0.0
+          output_cost_per_token: 0.0
+
+      harbor_environment_type: null
+      harbor_environment_import_path: responses_api_agents.harbor_agent.custom_envs.nemo_gym_sandbox.environment:NemoGymSandboxEnvironment
+      harbor_environment_kwargs:
+        sandbox_provider: ${sandbox}
+        sandbox_metadata:
+          harbor-benchmark: tmax-15k
+        sandbox_ttl_s: 21600
+        sandbox_ready_timeout_s: 900
+        # Harbor's verifier does not pass timeout_sec to exec. Keep this at its
+        # effective 600s budget; Vanillux passes 120s on Bash calls explicitly.
+        default_exec_timeout_s: 600
+        override_cpus: 1
+        override_memory_mb: 2048
+        override_storage_mb: 2048
+        cpu_pin_enabled: false
+
+      model_server:
+        type: responses_api_models
+        name: policy_model
+
+      # The paper has no separate agent wall clock; this is a safety bound.
+      harbor_agent_override_timeout: 14400
+      harbor_verifier_override_timeout: 600
+      harbor_timeout_multiplier: null
+      harbor_jobs_dir: ${oc.env:RUN_DIR}/gym/harbor_jobs
+
+harbor_agent_environment_server:
+  environment_servers:
+    legacy_agent:
+      entrypoint: app.py
+      agent_server:
+        type: responses_api_agents
+        name: harbor_agent
