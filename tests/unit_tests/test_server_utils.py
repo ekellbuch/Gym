@@ -18,6 +18,8 @@ import multiprocessing
 import pickle
 import socket
 from concurrent.futures import ProcessPoolExecutor
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 from unittest.mock import AsyncMock, MagicMock
 
 import uvicorn
@@ -850,6 +852,50 @@ class TestServerUtils:
             "the file-descriptor soft limit 64"
         ) in caplog.text
         assert "aiohttp connection pool may queue requests" not in caplog.text
+
+    def test_aiohttp_requests_stay_on_their_event_loops(self, monkeypatch: MonkeyPatch) -> None:
+        """Requests on two live loops keep using clients owned by their loop."""
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+            def log_message(self, *_args: object) -> None:
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        loop_a = asyncio.new_event_loop()
+        loop_b = asyncio.new_event_loop()
+        monkeypatch.setattr(nemo_gym.server_utils, "_GLOBAL_AIOHTTP_CLIENT", None)
+        monkeypatch.setattr(nemo_gym.server_utils, "_GLOBAL_AIOHTTP_CLIENTS", {})
+        monkeypatch.setattr(nemo_gym.server_utils, "get_global_config_dict", lambda **_kwargs: {})
+        clients = []
+
+        async def fetch() -> str:
+            client = nemo_gym.server_utils.get_global_aiohttp_client()
+            clients.append((asyncio.get_running_loop(), client))
+            response = await nemo_gym.server_utils.request("GET", f"http://127.0.0.1:{server.server_port}/")
+            async with response:
+                return await response.text()
+
+        try:
+            assert loop_a.run_until_complete(fetch()) == "ok"
+            assert loop_b.run_until_complete(fetch()) == "ok"
+            assert loop_a.run_until_complete(fetch()) == "ok"
+        finally:
+            for loop, client in clients:
+                if not client.closed:
+                    loop.run_until_complete(client.close())
+            nemo_gym.server_utils.global_aiohttp_client_exit()
+            loop_a.close()
+            loop_b.close()
+            server.shutdown()
+            server.server_close()
+            thread.join()
 
     async def test_connection_pool_telemetry_is_not_installed_when_disabled(self, monkeypatch: MonkeyPatch) -> None:
         monkeypatch.setattr(nemo_gym.server_utils, "_GLOBAL_AIOHTTP_CLIENT", None)

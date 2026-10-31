@@ -95,6 +95,7 @@ from nemo_gym.telemetry.span_groups import GymSpanGroup
 logger = logging.getLogger(__name__)
 
 _GLOBAL_AIOHTTP_CLIENT: Union[None, ClientSession] = None
+_GLOBAL_AIOHTTP_CLIENTS: dict[asyncio.AbstractEventLoop, ClientSession] = {}
 _GLOBAL_AIOHTTP_CLIENT_REQUEST_DEBUG: bool = False
 _GLOBAL_AIOHTTP_CLIENT_QUEUE_TELEMETRY: bool = False
 _UPSTREAM_ERROR_LOG_BODY_CHARS = 2000
@@ -288,10 +289,9 @@ def get_global_aiohttp_client(
     global_config_dict_parser_config: Optional[GlobalConfigDictParserConfig] = None,
     global_config_dict_parser_cls: Type[GlobalConfigDictParser] = GlobalConfigDictParser,
 ) -> ClientSession:  # pragma: no cover
-    global _GLOBAL_AIOHTTP_CLIENT
-
-    if _GLOBAL_AIOHTTP_CLIENT is not None:
-        return _GLOBAL_AIOHTTP_CLIENT
+    client = _GLOBAL_AIOHTTP_CLIENTS.get(asyncio.get_running_loop())
+    if client is not None and not client.closed:
+        return client
 
     global_config_dict = get_global_config_dict(
         global_config_dict_parser_config=global_config_dict_parser_config,
@@ -377,8 +377,16 @@ def set_global_aiohttp_client(cfg: GlobalAIOHTTPAsyncClientConfig) -> ClientSess
         cookie_jar=DummyCookieJar(),
     )
 
+    loop = asyncio.get_running_loop()
+    for owner_loop, stale_client in tuple(_GLOBAL_AIOHTTP_CLIENTS.items()):
+        if owner_loop.is_closed() or stale_client.closed:
+            if not stale_client.closed:
+                stale_client.detach()
+            del _GLOBAL_AIOHTTP_CLIENTS[owner_loop]
+
     global _GLOBAL_AIOHTTP_CLIENT
     _GLOBAL_AIOHTTP_CLIENT = client_session
+    _GLOBAL_AIOHTTP_CLIENTS[loop] = client_session
 
     global _GLOBAL_AIOHTTP_CLIENT_REQUEST_DEBUG
     _GLOBAL_AIOHTTP_CLIENT_REQUEST_DEBUG = cfg.global_aiohttp_client_request_debug
@@ -386,11 +394,15 @@ def set_global_aiohttp_client(cfg: GlobalAIOHTTPAsyncClientConfig) -> ClientSess
     global _GLOBAL_AIOHTTP_CLIENT_QUEUE_TELEMETRY
     _GLOBAL_AIOHTTP_CLIENT_QUEUE_TELEMETRY = isinstance(connector, QueueTimedTCPConnector)
 
-    return _GLOBAL_AIOHTTP_CLIENT
+    return client_session
 
 
 def is_global_aiohttp_client_setup() -> bool:  # pragma: no cover
-    return _GLOBAL_AIOHTTP_CLIENT is not None
+    try:
+        client = _GLOBAL_AIOHTTP_CLIENTS.get(asyncio.get_running_loop())
+    except RuntimeError:
+        return False
+    return client is not None and not client.closed
 
 
 def is_global_aiohttp_client_request_debug_enabled() -> bool:
@@ -398,12 +410,25 @@ def is_global_aiohttp_client_request_debug_enabled() -> bool:
 
 
 def global_aiohttp_client_exit():  # pragma: no cover
-    if not is_global_aiohttp_client_setup():
-        return
-
     global _GLOBAL_AIOHTTP_CLIENT, _GLOBAL_AIOHTTP_CLIENT_QUEUE_TELEMETRY
-    asyncio.run(_GLOBAL_AIOHTTP_CLIENT.close())
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
 
+    for loop, client in tuple(_GLOBAL_AIOHTTP_CLIENTS.items()):
+        if client.closed:
+            continue
+        if loop.is_closed():
+            client.detach()
+        elif loop is running_loop:
+            loop.create_task(client.close())
+        elif loop.is_running():
+            asyncio.run_coroutine_threadsafe(client.close(), loop).result(timeout=10)
+        else:
+            loop.run_until_complete(client.close())
+
+    _GLOBAL_AIOHTTP_CLIENTS.clear()
     _GLOBAL_AIOHTTP_CLIENT = None
     _GLOBAL_AIOHTTP_CLIENT_QUEUE_TELEMETRY = False
 

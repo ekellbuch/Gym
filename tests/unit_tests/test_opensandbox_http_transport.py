@@ -54,6 +54,7 @@ async def shared_server(monkeypatch):
     port = site._server.sockets[0].getsockname()[1]
     async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=1, limit_per_host=1)) as client:
         monkeypatch.setattr(server_utils, "_GLOBAL_AIOHTTP_CLIENT", client)
+        monkeypatch.setattr(server_utils, "_GLOBAL_AIOHTTP_CLIENTS", {asyncio.get_running_loop(): client})
         try:
             yield SimpleNamespace(
                 url=f"http://127.0.0.1:{port}",
