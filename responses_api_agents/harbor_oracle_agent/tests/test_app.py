@@ -16,7 +16,7 @@ from nemo_gym.client import ServerClient
 from nemo_gym.data.tasks.harbor import answer_write_command
 from nemo_gym.sandbox import TRANSFER_USER, SandboxExecResult
 from responses_api_agents.harbor_oracle_agent import app as module
-from responses_api_agents.harbor_oracle_agent.app import OracleAgent, OracleAgentConfig
+from responses_api_agents.harbor_oracle_agent.app import ValidationAgent, ValidationAgentConfig
 
 
 @dataclass
@@ -125,13 +125,13 @@ def make_agent(monkeypatch: MonkeyPatch, *, sandbox: FakeSandbox | None = None):
 
     connect.descriptors = []
     monkeypatch.setattr(module.AsyncSandbox, "connect", connect)
-    config = OracleAgentConfig(
+    config = ValidationAgentConfig(
         host="0.0.0.0",
         port=8081,
         entrypoint="",
         name="harbor_oracle_agent",
     )
-    agent = OracleAgent(config=config, server_client=MagicMock(spec=ServerClient))
+    agent = ValidationAgent(config=config, server_client=MagicMock(spec=ServerClient))
     return agent, sandbox, connect
 
 
@@ -177,6 +177,7 @@ def test_nop_returns_no_output_and_never_executes_in_the_sandbox(monkeypatch):
     response = client.post("/v1/responses", json=RESPONSES_BODY)
     assert response.status_code == 200
     payload = response.json()
+    assert payload["model"] == "nop"
     assert payload["metadata"] == {"nop": "completed"}
     assert payload["output"] == []
     assert payload["usage"]["total_tokens"] == 0
@@ -230,8 +231,8 @@ def test_oracle_runs_the_solution_the_server_placed_in_the_borrowed_sandbox(monk
 
 def test_oracle_reads_no_task_folder():
     """The task, its digest and its solution are the environment server's; the oracle has no path to them."""
-    assert "environment_server" not in OracleAgentConfig.model_fields
-    assert set(OracleAgentConfig.model_fields) - set(module.BaseResponsesAPIAgentConfig.model_fields) == {
+    assert "environment_server" not in ValidationAgentConfig.model_fields
+    assert set(ValidationAgentConfig.model_fields) - set(module.BaseResponsesAPIAgentConfig.model_fields) == {
         "max_solve_timeout_s",
         "output_tail_chars",
         "validation_mode",

@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Oracle agent: run a Harbor task's reference solution instead of a model.
+"""Harbor validation agent: run the supplied solution or a no-op control.
+
+No-op returns an empty response without executing anything in the sandbox. The environment
+server withholds the supplied solution in this mode; the oracle behavior is described below.
 
 The oracle is an agent harness like any other. It borrows the sandbox the ``harbor``
 environment server seeded, where that server placed the task's ``solution/`` at ``/solution``
@@ -87,7 +90,6 @@ SOLVE_LOG_DIR = "/logs/agent"
 SOLVE_LOG = f"{SOLVE_LOG_DIR}/oracle.txt"
 # Extra time the exec may wait after the in-container `timeout` should have fired.
 SOLVE_GRACE_S = 60.0
-ORACLE_METADATA_KEY = "oracle"
 ORACLE_STATUS_SOLVED = "solved"
 ORACLE_STATUS_UNVALIDATED = "unvalidated"
 ORACLE_STATUS_FAILED = "failed"
@@ -98,7 +100,7 @@ ORACLE_ERROR_WRAPPER = "wrapper"
 ORACLE_ERROR_ANSWER = "answer"
 
 
-class OracleAgentConfig(BaseResponsesAPIAgentConfig):
+class ValidationAgentConfig(BaseResponsesAPIAgentConfig):
     # Like every other harness config, this one tolerates the keys the run config puts on an agent block
     # (`datasets`, carried by the generated per-taskset agent) without declaring them.
 
@@ -109,7 +111,7 @@ class OracleAgentConfig(BaseResponsesAPIAgentConfig):
 
 
 @dataclass
-class OracleSession(AgentSessionState):
+class ValidationSession(AgentSessionState):
     sandbox: AsyncSandbox
     workdir: str
     # The task user and the `[solution].env` the environment server resolved, from the sandbox access.
@@ -119,8 +121,8 @@ class OracleSession(AgentSessionState):
     timeout_s: float
 
 
-class OracleAgent(SimpleResponsesAPIAgent):
-    config: OracleAgentConfig
+class ValidationAgent(SimpleResponsesAPIAgent):
+    config: ValidationAgentConfig
     ray_enabled = False
 
     def supports_task_tool_context(self) -> bool:
@@ -135,21 +137,21 @@ class OracleAgent(SimpleResponsesAPIAgent):
     def model_post_init(self, context: Any, /) -> None:
         super().model_post_init(context)
         if self.config.num_workers not in (None, 1):
-            raise ValueError("Process-local oracle sessions require num_workers=1")
+            raise ValueError("Process-local validation sessions require num_workers=1")
 
     # -- sessions --------------------------------------------------------------------------
 
-    async def _seed_agent_session_state(self, body: AgentSeedSessionRequest) -> OracleSession:
+    async def _seed_agent_session_state(self, body: AgentSeedSessionRequest) -> ValidationSession:
         if body.sandbox_access is None:
-            raise HTTPException(422, "The oracle agent needs sandbox_access from the environment server")
+            raise HTTPException(422, "The validation agent needs sandbox_access from the environment server")
         if body.agent_timeout_sec is None:
             raise HTTPException(
                 422,
-                "The oracle agent needs agent_timeout_sec (the task's [agent].timeout_sec) from the environment server",
+                "The validation agent needs agent_timeout_sec (the task's [agent].timeout_sec) from the environment server",
             )
         connection = body.sandbox_access.connection
         if not isinstance(connection, DirectSandboxConnection):
-            raise HTTPException(422, "The oracle agent supports only direct sandbox connections")
+            raise HTTPException(422, "The validation agent supports only direct sandbox connections")
         timeout = body.agent_timeout_sec
         if self.config.max_solve_timeout_s is not None:
             timeout = min(timeout, self.config.max_solve_timeout_s)
@@ -159,7 +161,7 @@ class OracleAgent(SimpleResponsesAPIAgent):
         except BaseException:
             await provider.aclose()
             raise
-        return OracleSession(
+        return ValidationSession(
             request=body,
             sandbox=sandbox,
             workdir=body.sandbox_access.workdir,
@@ -169,18 +171,18 @@ class OracleAgent(SimpleResponsesAPIAgent):
         )
 
     async def _close_agent_session_state(self, state: AgentSessionState) -> AgentCloseSessionResponse:
-        if not isinstance(state, OracleSession):
-            raise TypeError("Expected an oracle agent session state")
+        if not isinstance(state, ValidationSession):
+            raise TypeError("Expected a validation agent session state")
         await state.sandbox.disconnect()
         return AgentCloseSessionResponse(agent_session_id=state.request.agent_session_id)
 
-    def _session_for(self, request: Request) -> OracleSession:
+    def _session_for(self, request: Request) -> ValidationSession:
         session_id = self._agent_session_id_from_request(request)
         if session_id is None:
-            raise HTTPException(404, "No seeded oracle agent session for this request")
+            raise HTTPException(404, "No seeded validation agent session for this request")
         state = self._require_agent_session(session_id)
-        if not isinstance(state, OracleSession):
-            raise TypeError("Expected an oracle agent session state")
+        if not isinstance(state, ValidationSession):
+            raise TypeError("Expected a validation agent session state")
         return state
 
     # -- the "turn" ------------------------------------------------------------------------
@@ -190,11 +192,7 @@ class OracleAgent(SimpleResponsesAPIAgent):
     ) -> NeMoGymResponse:
         session = self._session_for(request)
         if self.config.validation_mode == "nop":
-            response = self._response(body, "", "", {})
-            response.model = "nop"
-            response.output = []
-            response.metadata = {"nop": "completed"}
-            return response
+            return self._response(body, "completed", "", {})
         # The environment server put the solution in place for this harness; a task that ships none left
         # nothing there. The probe runs as the task user, who must be able to reach the script.
         present = await session.sandbox.exec(f"test -f {SOLVE_SCRIPT}", cwd="/", timeout_s=60, user=session.user)
@@ -287,7 +285,7 @@ class OracleAgent(SimpleResponsesAPIAgent):
         return self._response(body, status, output or f"solve.sh exited with {result.return_code}", extra)
 
     async def _submit_answer(
-        self, session: OracleSession, body: NeMoGymResponseCreateParamsNonStreaming
+        self, session: ValidationSession, body: NeMoGymResponseCreateParamsNonStreaming
     ) -> NeMoGymResponse:
         """Read ``solution/answer.md`` byte for byte, leave it as ``answer.md`` in the working directory, then submit
         it as the response.
@@ -338,23 +336,24 @@ class OracleAgent(SimpleResponsesAPIAgent):
             return self._response(body, ORACLE_STATUS_FAILED, output, extra)
         return self._response(body, ORACLE_STATUS_SOLVED, text, extra)
 
-    @staticmethod
     def _response(
-        body: NeMoGymResponseCreateParamsNonStreaming, status: str, text: str, extra: dict[str, str]
+        self, body: NeMoGymResponseCreateParamsNonStreaming, status: str, text: str, extra: dict[str, str]
     ) -> NeMoGymResponse:
         return NeMoGymResponse(
             id=f"resp_{uuid4().hex}",
             created_at=int(time()),
-            model="oracle",
+            model=self.config.validation_mode,
             object="response",
             status="completed",
-            output=[
+            output=[]
+            if self.config.validation_mode == "nop"
+            else [
                 NeMoGymResponseOutputMessage(
                     id=f"msg_{uuid4().hex}",
                     content=[NeMoGymResponseOutputText(annotations=[], text=text)],
                 )
             ],
-            metadata={ORACLE_METADATA_KEY: status, **extra},
+            metadata={self.config.validation_mode: status, **extra},
             tool_choice=body.tool_choice,
             tools=body.tools,
             parallel_tool_calls=body.parallel_tool_calls,
@@ -368,8 +367,10 @@ class OracleAgent(SimpleResponsesAPIAgent):
         )
 
     async def run(self, body: BaseRunRequest = Body()) -> BaseVerifyResponse:
-        raise HTTPException(501, "The oracle agent runs only through an environment server, not the legacy /run route")
+        raise HTTPException(
+            501, "The validation agent runs only through an environment server, not the legacy /run route"
+        )
 
 
 if __name__ == "__main__":
-    OracleAgent.run_webserver()
+    ValidationAgent.run_webserver()
