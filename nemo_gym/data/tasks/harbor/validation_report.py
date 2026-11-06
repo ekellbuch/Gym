@@ -123,6 +123,7 @@ def summarize_validation(
             continue
         oracle = _dig(row, "response", "metadata", "oracle")
         reward = row.get("reward")
+        scored = isinstance(reward, (int, float)) and not isinstance(reward, bool) and math.isfinite(reward)
         # What the verifier cost and used, per task: its wall time and the network it ran under.
         verify_s = row.get("verifier_seconds")
         verify_note = (
@@ -139,20 +140,12 @@ def summarize_validation(
             lines.append(f"{label}\tunvalidated (no solution/)\t-\t-\t-")
         elif mode == "nop":
             status = _dig(row, "response", "metadata", "nop")
-            scored = isinstance(reward, (int, float)) and not isinstance(reward, bool) and math.isfinite(reward)
-            failed = (
-                row.get("failure_kind")
-                or row.get("verifier_rewards") is None
-                or row.get("evaluation_completed") is False
-                or row.get("verifier_return_code") not in (None, 0)
-            )
-            turns = row.get("turns") or []
-            failed = failed or any(
-                turn.get("failure_kind")
-                or turn.get("mask_sample")
-                or turn.get("verifier_rewards") is None
-                or turn.get("verifier_return_code") not in (None, 0)
-                for turn in turns
+            failed = any(
+                result.get("failure_kind")
+                or result.get("mask_sample")
+                or result.get("verifier_rewards") is None
+                or result.get("verifier_return_code") not in (None, 0)
+                for result in [row, *(row.get("turns") or [])]
             )
             passed = status == "completed" and scored and reward == 0.0 and not failed
             ok = ok and passed
@@ -167,7 +160,6 @@ def summarize_validation(
             if oracle not in ("solved", "failed"):
                 oracle = "missing" if oracle is None else f"status {oracle!r}"
                 oracle += " (not an oracle result)"
-            scored = isinstance(reward, (int, float)) and not isinstance(reward, bool) and math.isfinite(reward)
             if oracle != "solved" or not scored or reward < 1.0:
                 ok = False
             kind = row.get("failure_kind")

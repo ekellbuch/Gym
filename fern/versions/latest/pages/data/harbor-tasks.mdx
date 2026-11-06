@@ -453,10 +453,9 @@ solution are listed as unvalidated. Validation outputs never share inputs, confi
 evaluation run.
 
 Use `--agent nop` for the negative control: the agent returns no output and does not run or receive the supplied
-solution. NeMo Gym runs the task's verifier on the state after setup, without executing the supplied solution,
-and requires a measured task reward of exactly zero. A nonzero reward, missing result, verification failure or
-masked attempt (an attempt excluded from scoring) exits non-zero. Tasks without a
-supplied solution are included. This mode makes no model calls; task setup and verification still run normally.
+solution. The agent makes no model calls. Setup and verification still run; the measured task reward must be zero.
+Nonzero rewards, missing results, verification failures and masked attempts (excluded from scoring) exit non-zero.
+Tasks without supplied solutions are included.
 Multi-step tasks retain their configured step stopping rules; the zero requirement applies to the aggregated task
 reward, and any executed step with a verification failure fails validation.
 

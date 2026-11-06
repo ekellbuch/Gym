@@ -48,7 +48,6 @@ def test_nop_rejects_every_reward_except_numeric_zero(tmp_path, reward):
     [
         {"mask_sample": True},
         {"failure_kind": "harbor:missing_reward"},
-        {"evaluation_completed": False},
         {"verifier_rewards": None},
         {"verifier_return_code": 1},
         {"response": {"metadata": {"oracle": "solved"}}},

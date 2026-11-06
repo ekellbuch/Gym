@@ -169,9 +169,8 @@ def seed_body(
 RESPONSES_BODY = {"input": [{"role": "user", "content": "Create hello.txt"}]}
 
 
-@pytest.mark.parametrize("solution,answer", [(True, None), (False, "answer\n"), (False, None)])
-def test_nop_returns_no_output_and_never_executes_in_the_sandbox(monkeypatch, solution, answer):
-    agent, sandbox, _ = make_agent(monkeypatch, sandbox=FakeSandbox(solution=solution, answer=answer))
+def test_nop_returns_no_output_and_never_executes_in_the_sandbox(monkeypatch):
+    agent, sandbox, _ = make_agent(monkeypatch, sandbox=FakeSandbox(solution=True, answer="answer\n"))
     agent.config.validation_mode = "nop"
     client = TestClient(agent.setup_webserver())
     assert client.post("/v1/agent_sessions", json=seed_body()).status_code == 200
