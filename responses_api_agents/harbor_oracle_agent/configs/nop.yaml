@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+harbor_nop_agent:
+  responses_api_agents:
+    harbor_oracle_agent:
+      entrypoint: app.py
+      resources_server: null
+      validation_mode: nop

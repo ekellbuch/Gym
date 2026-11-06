@@ -169,6 +169,22 @@ def seed_body(
 RESPONSES_BODY = {"input": [{"role": "user", "content": "Create hello.txt"}]}
 
 
+@pytest.mark.parametrize("solution,answer", [(True, None), (False, "answer\n"), (False, None)])
+def test_nop_returns_no_output_and_never_executes_in_the_sandbox(monkeypatch, solution, answer):
+    agent, sandbox, _ = make_agent(monkeypatch, sandbox=FakeSandbox(solution=solution, answer=answer))
+    agent.config.validation_mode = "nop"
+    client = TestClient(agent.setup_webserver())
+    assert client.post("/v1/agent_sessions", json=seed_body()).status_code == 200
+    response = client.post("/v1/responses", json=RESPONSES_BODY)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["metadata"] == {"nop": "completed"}
+    assert payload["output"] == []
+    assert payload["usage"]["total_tokens"] == 0
+    assert sandbox.execs == []
+    assert sandbox.files == {}
+
+
 def solve_run(sandbox: FakeSandbox) -> dict:
     return next(call for call in sandbox.execs if "bash /solution/solve.sh" in call["command"])
 
@@ -219,6 +235,7 @@ def test_oracle_reads_no_task_folder():
     assert set(OracleAgentConfig.model_fields) - set(module.BaseResponsesAPIAgentConfig.model_fields) == {
         "max_solve_timeout_s",
         "output_tail_chars",
+        "validation_mode",
     }
     assert not any(name in dir(module) for name in ("load_task", "HarborTask", "upload_dir", "Path"))
 

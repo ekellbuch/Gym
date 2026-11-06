@@ -447,13 +447,25 @@ this command.
 
 ## `gym dataset validate`
 
-Runs each task's reference solution (`solution/solve.sh`) through the task's verifier with an oracle harness and
+By default, runs each task's reference solution (`solution/solve.sh`) through the task's verifier with an oracle harness and
 reports the rewards. Every solution must score 1; the command exits non-zero otherwise. Tasks without a
 solution are listed as unvalidated. Validation outputs never share inputs, configs or cached results with an
 evaluation run.
 
+Use `--agent nop` for the negative control: the agent returns no output and does not run or receive the supplied
+solution. NeMo Gym runs the task's verifier on the state after setup, without executing the supplied solution,
+and requires a measured task reward of exactly zero. A nonzero reward, missing result, verification failure or
+masked attempt (an attempt excluded from scoring) exits non-zero. Tasks without a
+supplied solution are included. This mode makes no model calls; task setup and verification still run normally.
+Multi-step tasks retain their configured step stopping rules; the zero requirement applies to the aggregated task
+reward, and any executed step with a verification failure fails validation.
+
+No-op outputs default to `results/harbor/validation/nop/<taskset>/`, separate from oracle results. If `--output`
+points at an existing result file, resuming refuses results from the other mode.
+
 ```bash
 gym dataset validate my-dataset --sandbox opensandbox
+gym dataset validate my-dataset --agent nop --sandbox opensandbox
 gym dataset validate harbor:terminal-bench/terminal-bench@4.0.0 --sandbox opensandbox --only-tasks 'hello-*'
 gym dataset validate terminal_bench_4 --sandbox opensandbox      # the committed entry, after `gym dataset pull terminal_bench_4`
 ```
@@ -461,6 +473,7 @@ gym dataset validate terminal_bench_4 --sandbox opensandbox      # the committed
 | Option | Description |
 | --- | --- |
 | `TARGET` | A task folder, a folder of task folders, a `harbor:<dataset>[@<version>]` hub reference, or the name of a committed entry under `environments/harbor/` after `gym dataset pull`. |
+| `--agent oracle\|nop` | Run the supplied solution (default: `oracle`), or require reward zero without solving (`nop`). |
 | `--sandbox PROVIDER` | Sandbox provider for the task containers (for example `opensandbox`, `docker`). |
 | `--config PATH` | Extra config file to load. Repeatable. |
 | `--only-tasks PATTERNS` | Comma-separated task names or globs; only matching tasks are validated. |

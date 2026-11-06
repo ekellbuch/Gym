@@ -8,6 +8,16 @@ from omegaconf import OmegaConf
 from environment_servers.harbor.tests.conftest import make_server, run_episode
 
 
+async def test_nop_does_not_receive_the_solution(tmp_path, monkeypatch):
+    server, task, sandbox, _ = make_server(
+        tmp_path, monkeypatch, agent_implementation="harbor_oracle_agent", solution=True
+    )
+    server.server_client.global_config_dict.agent.responses_api_agents.harbor_oracle_agent.validation_mode = "nop"
+    response = await run_episode(server, task)
+    assert response.failure is None, response.failure
+    assert [c for c in sandbox.execs if "-C /solution" in c["command"]] == []
+
+
 async def test_an_unresolvable_implementation_warns_and_places_no_solution(tmp_path, monkeypatch, caplog):
     """The wiring, not the task, is named when the server cannot tell which harness it serves."""
     server, task, sandbox, _ = make_server(

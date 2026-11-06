@@ -27,7 +27,7 @@ import logging
 import math
 from dataclasses import dataclass
 from time import time
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import Body, HTTPException, Request
@@ -104,6 +104,7 @@ class OracleAgentConfig(BaseResponsesAPIAgentConfig):
 
     # Wall-clock cap for solve.sh when the task's [agent].timeout_sec is larger.
     max_solve_timeout_s: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    validation_mode: Literal["oracle", "nop"] = "oracle"
     output_tail_chars: int = 4000
 
 
@@ -188,6 +189,12 @@ class OracleAgent(SimpleResponsesAPIAgent):
         self, request: Request, body: NeMoGymResponseCreateParamsNonStreaming = Body()
     ) -> NeMoGymResponse:
         session = self._session_for(request)
+        if self.config.validation_mode == "nop":
+            response = self._response(body, "", "", {})
+            response.model = "nop"
+            response.output = []
+            response.metadata = {"nop": "completed"}
+            return response
         # The environment server put the solution in place for this harness; a task that ships none left
         # nothing there. The probe runs as the task user, who must be able to reach the script.
         present = await session.sandbox.exec(f"test -f {SOLVE_SCRIPT}", cwd="/", timeout_s=60, user=session.user)

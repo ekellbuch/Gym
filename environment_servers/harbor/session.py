@@ -338,7 +338,7 @@ class HarborSessionMixin:
     async def _seed_solution(self, session: HarborSession) -> None:
         """Place the task's reference solution for the oracle, as Harbor's oracle copies it into the environment.
 
-        Only an agent instance implemented by ``harbor_oracle_agent`` gets it: the seeded sandbox receives the
+        Only ``harbor_oracle_agent`` in oracle mode gets it: the seeded sandbox receives the
         snapshot's ``solution/`` at ``/solution`` as root, readable by the task user, and the session carries
         the host-resolved ``[solution].env`` for the harness's commands (Harbor 0.22.0 ``agents/oracle.py``
         uploads the folder and resolves ``solution.env`` the same way). Any other harness never sees the
@@ -358,6 +358,10 @@ class HarborSessionMixin:
             )
             return
         if implementation != ORACLE_AGENT:
+            return
+        ref = self.config.agent_server
+        agent_config = self.server_client.global_config_dict[ref.name][ref.type][implementation]
+        if agent_config.get("validation_mode", "oracle") == "nop":
             return
         task = session.task
         session.agent_env = resolve_env_templates(task.config.solution.env)

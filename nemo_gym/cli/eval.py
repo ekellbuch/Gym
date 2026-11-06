@@ -1799,7 +1799,7 @@ def _resume_conflict(materialized: Path, expected: list[dict[str, object]]) -> s
 
 @exit_cleanly_on_config_error
 def validate_target(args: argparse.Namespace, overrides: list[str], *, agent: AgentSelection | None = None) -> None:
-    """Entry point for ``gym dataset validate <target>``: run every task's reference solution and score it.
+    """Run the supplied solution or no-op control and check the task's verifier reward.
 
     ``gym eval run <target> --agent harbor_oracle`` lands here too, with its ``agent`` selection, so the oracle's
     results never share a folder with a model's.
@@ -1809,13 +1809,18 @@ def validate_target(args: argparse.Namespace, overrides: list[str], *, agent: Ag
 
     # Evaluation and reference validation must never share inputs, configs, or cached results.
     try:
-        agent = agent or resolve_agent(ORACLE_AGENT)
+        requested_mode = getattr(args, "validation_agent", "oracle")
+        agent = agent or resolve_agent(f"{ORACLE_AGENT}/nop" if requested_mode == "nop" else ORACLE_AGENT)
+        mode = agent.validation_mode or "oracle"
+        output_root = DEFAULT_OUTPUT_ROOT / "validation"
+        if mode == "nop":
+            output_root /= "nop"
         sandbox = getattr(args, "sandbox", None)
         if sandbox is not None:
             resolve_sandbox_config(sandbox)
         prepared = prepare_target(
             args.target,
-            output_root=DEFAULT_OUTPUT_ROOT / "validation",
+            output_root=output_root,
             # A template renders where `gym eval run` renders it: one rendered dataset, one set of records (an image
             # built for it once), while the oracle's rows and results stay under validation/.
             render_root=DEFAULT_OUTPUT_ROOT,
@@ -1844,10 +1849,10 @@ def validate_target(args: argparse.Namespace, overrides: list[str], *, agent: Ag
         yaml.YAMLError,
     ) as exc:
         args._parser.error(str(exc))
-    unvalidated = [task.task_id for task in prepared.tasks if not task.has_solution]
+    unvalidated = [task.task_id for task in prepared.tasks if mode == "oracle" and not task.has_solution]
     # Left out of the run, not failed: the summary names them with the reason so the result folder explains itself.
     left_out = dict.fromkeys(unvalidated, NO_REFERENCE_SOLUTION)
-    prepared = replace(prepared, tasks=[task for task in prepared.tasks if task.has_solution])
+    prepared = replace(prepared, tasks=[task for task in prepared.tasks if mode == "nop" or task.has_solution])
     write_rows(
         prepared.tasks,
         prepared.taskset,
@@ -1882,17 +1887,17 @@ def validate_target(args: argparse.Namespace, overrides: list[str], *, agent: Ag
                     "the selected tasks or task digests have changed. Use +resume_from_cache=false "
                     "to validate the current tasks, or choose a new +output_jsonl_fpath to keep the old results."
                 )
-            # Only the oracle agent stamps `response.metadata.oracle`. Cached results without it were written by
-            # another run (a model evaluation on the same file); resumed, they would stand in for the oracle's.
+            # Each control stamps its own metadata key, so a cached result from another control or a model
+            # evaluation cannot stand in for the requested validation.
             foreign = sorted(
                 _validation_key(row)[1]
                 for row in _validation_rows(rollouts)
-                if ((row.get("response") or {}).get("metadata") or {}).get("oracle") is None
+                if ((row.get("response") or {}).get("metadata") or {}).get(mode) is None
             )
             if foreign:
                 raise ConfigError(
                     f"Cannot resume Harbor validation from {rollouts}: {len(foreign)} cached result(s) were not "
-                    f"produced by the oracle agent (no oracle metadata): {', '.join(foreign[:5])}"
+                    f"produced by the {mode} agent (no {mode} metadata): {', '.join(foreign[:5])}"
                     f"{', ...' if len(foreign) > 5 else ''}. Use +resume_from_cache=false to validate the current "
                     "tasks, or choose a new +output_jsonl_fpath to keep the old results."
                 )
@@ -1905,7 +1910,7 @@ def validate_target(args: argparse.Namespace, overrides: list[str], *, agent: Ag
             # earlier selection would make the data processor refuse this one, so they go now.
             before_dispatch = output_signatures(rollouts)
             _clear_collector_metrics(rollouts, split=_collector_split())
-        print(f"Run config written to {config_path}; validating {len(expected)} oracle rollout(s)")
+        print(f"Run config written to {config_path}; validating {len(expected)} {mode} rollout(s)")
         try:
             dispatch("nemo_gym.cli.eval:e2e_rollout_collection", tokens)
         finally:
@@ -1937,7 +1942,7 @@ def validate_target(args: argparse.Namespace, overrides: list[str], *, agent: Ag
             before_dispatch=output_signatures(rollouts),
             unvalidated=left_out,
         )
-    report = summarize_validation(rollouts, unvalidated, expected=expected, skipped=prepared.skipped)
+    report = summarize_validation(rollouts, unvalidated, expected=expected, skipped=prepared.skipped, mode=mode)
     print(report.text)
     if not report.ok:
         sys.exit(1)
