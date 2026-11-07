@@ -447,7 +447,7 @@ this command.
 
 ## `gym dataset validate`
 
-Runs two controls in separate fresh environments: the supplied solution (oracle), which must score 1,
+Runs two controls in separate fresh environments: the supplied solution (oracle), which must score at least 1,
 and no-op, which does nothing and must score 0. Both controls run even if one returns a failing verdict.
 The agent makes no model calls; task setup and verification still run. The command exits non-zero if either control fails.
 
