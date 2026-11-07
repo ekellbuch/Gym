@@ -24,6 +24,7 @@ def result(task="a", *, index=0, repeat=0, **fields):
         "_ng_task_index": index,
         "_ng_rollout_index": repeat,
         "reward": 1.0,
+        "verifier_rewards": {"reward": fields.get("reward", 1.0)},
         # What the oracle agent stamps on every response; a row another agent produced has no such key.
         "response": {"metadata": {"oracle": "solved"}},
         **fields,
@@ -33,6 +34,41 @@ def result(task="a", *, index=0, repeat=0, **fields):
 def write_jsonl(path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+
+@pytest.mark.parametrize("reward", [1.0, -1.0, 0.5, None, False, float("nan"), float("inf")])
+def test_nop_rejects_every_reward_except_numeric_zero(tmp_path, reward):
+    path = tmp_path / "rollouts.jsonl"
+    write_jsonl(path, [result(reward=reward, response={"metadata": {"nop": "completed"}})])
+    assert not summarize_validation(path, [], mode="nop").ok
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"mask_sample": True},
+        {"failure_kind": "harbor:missing_reward"},
+        {"verifier_rewards": None},
+        {"verifier_return_code": 1},
+        {"response": {"metadata": {"oracle": "solved"}}},
+        {"response": {"metadata": {"oracle": "unvalidated"}}},
+        {"response": {"metadata": {"nop": "failed"}}},
+        {"turns": [{"verifier_rewards": None}]},
+    ],
+)
+def test_nop_never_passes_a_zero_caused_by_failure_or_another_agent(tmp_path, fields):
+    path = tmp_path / "rollouts.jsonl"
+    row = result(reward=0.0, response={"metadata": {"nop": "completed"}})
+    write_jsonl(path, [{**row, **fields}])
+    assert not summarize_validation(path, [], mode="nop").ok
+
+
+def test_nop_reports_clean_zero_as_passed(tmp_path):
+    path = tmp_path / "rollouts.jsonl"
+    write_jsonl(path, [result(reward=0.0, response={"metadata": {"nop": "completed"}})])
+    report = summarize_validation(path, [], mode="nop")
+    assert report.ok
+    assert report.text.splitlines()[1].split("\t")[1:3] == ["nop passed", "0.0"]
 
 
 @pytest.mark.parametrize("missing", [result("b", index=1), result(repeat=1)])
@@ -85,7 +121,22 @@ def validation_cli(tmp_path, monkeypatch):
     saved = root.handlers[:]
     root.handlers.clear()
 
-    def invoke(*flags):
+    import nemo_gym.cli.eval as eval_module
+
+    validate_both = eval_module.validate_target
+
+    def single_control(args, overrides, *, agent=None):
+        eval_module._validate_control(args, overrides, agent=agent or resolve_agent("harbor_oracle_agent"))
+
+    # Existing cases exercise the single-control runner; combined=True exercises the full command.
+    monkeypatch.setattr(eval_module, "validate_target", single_control)
+
+    def invoke(*flags, combined=False, agent="oracle"):
+        selection = resolve_agent("harbor_oracle_agent" + ("/nop" if agent == "nop" else ""))
+        runner = (
+            validate_both if combined else lambda args, overrides: single_control(args, overrides, agent=selection)
+        )
+        monkeypatch.setattr(eval_module, "validate_target", runner)
         monkeypatch.setattr(
             sys, "argv", ["gym", "dataset", "validate", str(tmp_path / "ds"), "--sandbox", "docker", *flags]
         )
@@ -431,7 +482,16 @@ def oracle_collection(monkeypatch, validation_cli):
     from nemo_gym.cli.eval import RunHelper
     from nemo_gym.rollouts.rollout_collection import RolloutCollectionHelper, _CompletedRollout
 
-    collection = SimpleNamespace(dispatched=[], payload=lambda row: result())
+    def payload(row):
+        mode = global_config.get_global_config_dict().harbor_ds_agent.responses_api_agents.harbor_oracle_agent.get(
+            "validation_mode", "oracle"
+        )
+        return result(
+            reward=1.0 if mode == "oracle" else 0.0,
+            response={"metadata": {mode: "solved" if mode == "oracle" else "completed"}},
+        )
+
+    collection = SimpleNamespace(dispatched=[], payload=payload)
 
     async def complete(row):
         collection.dispatched.append(row)
@@ -450,12 +510,108 @@ def oracle_collection(monkeypatch, validation_cli):
         lambda self, rows, **kwargs: (complete(row) for row in rows),
     )
 
-    def invoke(*flags):
+    def invoke(*flags, **kwargs):
         monkeypatch.setattr(global_config, "_GLOBAL_CONFIG_DICT", None)
-        validation_cli("+disable_aggregation=true", "+resume_from_cache=true", *flags)
+        validation_cli("+disable_aggregation=true", "+resume_from_cache=true", *flags, **kwargs)
 
     collection.invoke = invoke
     return collection
+
+
+@pytest.mark.parametrize("source", ["default", "flag", "file"])
+def test_validate_runs_both_controls_with_separate_resumable_outputs(tmp_path, oracle_collection, source, capsys):
+    write_task(tmp_path / "ds" / "a")
+
+    output = tmp_path / "custom results.jsonl"
+    overlay = tmp_path / "output.yaml"
+    overlay.write_text(yaml.safe_dump({"output_jsonl_fpath": str(output)}))
+    flags = {
+        "default": [],
+        "flag": ["--output", str(output)],
+        "file": ["--config", str(overlay)],
+    }[source]
+    oracle_collection.invoke(*flags, combined=True)
+    if source == "default":
+        paths = [
+            tmp_path / "results/harbor/validation/ds/rollouts.jsonl",
+            tmp_path / "results/harbor/validation/nop/ds/rollouts.nop.jsonl",
+        ]
+    else:
+        paths = [output, output.with_name(f"{output.stem}.nop.jsonl")]
+    assert [json.loads(path.read_text())["reward"] for path in paths] == [1.0, 0.0]
+    assert len(oracle_collection.dispatched) == 2
+    oracle_collection.invoke(*flags, combined=True)
+    assert len(oracle_collection.dispatched) == 2
+    text = capsys.readouterr().out
+    assert "oracle solved" in text and "nop passed" in text
+
+
+@pytest.mark.parametrize("oracle_reward,nop_reward", [(0.0, 0.0), (1.0, 1.0)])
+def test_validate_runs_both_even_when_one_fails(tmp_path, oracle_collection, oracle_reward, nop_reward):
+    write_task(tmp_path / "ds" / "a")
+    modes = []
+
+    def payload(row):
+        mode = global_config.get_global_config_dict().harbor_ds_agent.responses_api_agents.harbor_oracle_agent.get(
+            "validation_mode", "oracle"
+        )
+        modes.append(mode)
+        return result(
+            reward=oracle_reward if mode == "oracle" else nop_reward,
+            response={"metadata": {mode: "solved" if mode == "oracle" else "completed"}},
+        )
+
+    oracle_collection.payload = payload
+    with pytest.raises(SystemExit) as exc:
+        oracle_collection.invoke(combined=True)
+    assert exc.value.code == 1
+    assert modes == ["oracle", "nop"]
+
+
+def test_validate_still_runs_nop_without_a_supplied_solution(tmp_path, oracle_collection, capsys):
+    import shutil
+
+    write_task(tmp_path / "ds" / "a")
+    shutil.rmtree(tmp_path / "ds" / "a" / "solution")
+    oracle_collection.payload = lambda row: result(reward=0.0, response={"metadata": {"nop": "completed"}})
+    with pytest.raises(SystemExit) as exc:
+        oracle_collection.invoke(combined=True)
+    assert exc.value.code == 1
+    assert len(oracle_collection.dispatched) == 1
+    text = capsys.readouterr().out
+    assert "unvalidated (no solution/)" in text and "nop passed" in text
+
+
+def test_nop_validates_tasks_without_solutions_and_keeps_oracle_outputs_separate(tmp_path, oracle_collection):
+    import shutil
+
+    write_task(tmp_path / "ds" / "a")
+    shutil.rmtree(tmp_path / "ds" / "a" / "solution")
+    oracle_collection.payload = lambda row: result(reward=0.0, response={"metadata": {"nop": "completed"}})
+    oracle_collection.invoke(agent="nop")
+    path = tmp_path / "results/harbor/validation/nop/ds/rollouts.jsonl"
+    assert json.loads(path.read_text())["reward"] == 0.0
+    assert len(oracle_collection.dispatched) == 1
+    assert not (tmp_path / "results/harbor/validation/ds/rollouts.jsonl").exists()
+    config = global_config.get_global_config_dict()
+    assert config.harbor_ds_agent.responses_api_agents.harbor_oracle_agent.validation_mode == "nop"
+
+
+@pytest.mark.parametrize("first,second", [("oracle", "nop"), ("nop", "oracle")])
+def test_validation_refuses_to_resume_the_other_control(tmp_path, oracle_collection, first, second):
+    write_task(tmp_path / "ds" / "a")
+    oracle_collection.payload = lambda row: result(
+        reward=1.0 if first == "oracle" else 0.0,
+        response={"metadata": {first: "solved" if first == "oracle" else "completed"}},
+    )
+    output = tmp_path / "shared.jsonl"
+    oracle_collection.invoke("--output", str(output), agent=first)
+    original = output.read_bytes()
+    with pytest.raises(SystemExit) as exc:
+        oracle_collection.invoke("--output", str(output), agent=second)
+    assert exc.value.code == 1
+    assert output.read_bytes() == original
+    assert len(oracle_collection.dispatched) == 1
 
 
 def test_validate_resume_rejects_changed_digest_and_preserves_unchanged_retries(

@@ -28,7 +28,7 @@ import shlex
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -171,6 +171,7 @@ class AgentSelection:
     impl_name: str
     # The harness calls the model server from inside the task sandbox (see ``runs_in_sandbox``).
     runs_in_sandbox: bool = False
+    validation_mode: Literal["oracle", "nop"] | None = None
 
 
 def _write_skipped(output_dir: Path, errors: dict[str, HarborTaskError]) -> None:
@@ -934,6 +935,7 @@ def resolve_agent(agent: str) -> AgentSelection:
         instance_name=instances[0],
         impl_name=impls[0],
         runs_in_sandbox=runs_in_sandbox(impls[0], impls_config[impls[0]]),
+        validation_mode=impls_config[impls[0]].get("validation_mode", "oracle") if impls[0] == ORACLE_AGENT else None,
     )
 
 

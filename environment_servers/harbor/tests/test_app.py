@@ -1158,10 +1158,10 @@ class TestAgentStage:
         """`gym dataset validate` runs the oracle through this server; solve.sh reaches the task's tools by itself."""
         from unittest.mock import MagicMock
 
-        from responses_api_agents.harbor_oracle_agent.app import OracleAgent, OracleAgentConfig
+        from responses_api_agents.harbor_oracle_agent.app import ValidationAgent, ValidationAgentConfig
 
-        oracle = OracleAgent(
-            config=OracleAgentConfig(host="0.0.0.0", port=8081, entrypoint="", name="harbor_oracle_agent"),
+        oracle = ValidationAgent(
+            config=ValidationAgentConfig(host="0.0.0.0", port=8081, entrypoint="", name="harbor_oracle_agent"),
             server_client=MagicMock(spec=ServerClient),
         )
         server, task, sandbox, _ = make_server(tmp_path, monkeypatch, toml=task_tool_context_toml(declaration))

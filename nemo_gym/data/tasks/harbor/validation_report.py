@@ -14,7 +14,7 @@ import math
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from nemo_gym.config.config_types import ConfigError
 from nemo_gym.data.tasks.harbor.digest import DIGEST_KEY
@@ -87,6 +87,7 @@ def summarize_validation(
     *,
     expected: list[dict[str, object]] | None = None,
     skipped: dict[str, str] | None = None,
+    mode: Literal["oracle", "nop"] = "oracle",
 ) -> ValidationReport:
     """Report every selected task/repeat, reconciling results with failed attempts.
 
@@ -101,10 +102,10 @@ def summarize_validation(
     failures = {_validation_key(row): row for row in _validation_rows(failures_path_for(rollouts))}
     keys = selected if selected is not None else dict.fromkeys([*results, *failures])
     if selected is not None and not selected:
-        # Nothing ran: no selected task has a solution. Reporting that as a pass would let
-        # `gym dataset validate X && publish` go ahead with no reference solution checked.
+        # An empty selection cannot validate a collection in either mode.
         ok = False
-        lines.append("-\t0 tasks validated (no selected task has a solution/)\t-\t-\t-")
+        reason = " (no selected task has a solution/)" if mode == "oracle" else ""
+        lines.append(f"-\t0 tasks validated{reason}\t-\t-\t-")
     for key in keys:
         _, task_id, _, repeat = key
         label = f"{task_id} [repeat {repeat}]" if repeat is not None else task_id
@@ -122,6 +123,7 @@ def summarize_validation(
             continue
         oracle = _dig(row, "response", "metadata", "oracle")
         reward = row.get("reward")
+        scored = isinstance(reward, (int, float)) and not isinstance(reward, bool) and math.isfinite(reward)
         # What the verifier cost and used, per task: its wall time and the network it ran under.
         verify_s = row.get("verifier_seconds")
         verify_note = (
@@ -131,11 +133,26 @@ def summarize_validation(
         if row.get("mask_sample"):
             ok = False
             lines.append(f"{label}\tmasked ({row.get('failure_kind')})\t-\t{verify_note}\t{network}")
-        elif oracle == "unvalidated":
+        elif mode == "oracle" and oracle == "unvalidated":
             # A selected reference solution disappearing is not a successful validation.
             if selected is not None:
                 ok = False
             lines.append(f"{label}\tunvalidated (no solution/)\t-\t-\t-")
+        elif mode == "nop":
+            status = _dig(row, "response", "metadata", "nop")
+            failed = any(
+                result.get("failure_kind")
+                or result.get("mask_sample")
+                or result.get("verifier_rewards") is None
+                or result.get("verifier_return_code") not in (None, 0)
+                for result in [row, *(row.get("turns") or [])]
+            )
+            passed = status == "completed" and scored and reward == 0.0 and not failed
+            ok = ok and passed
+            label_status = "nop passed" if passed else "nop failed"
+            if row.get("failure_kind"):
+                label_status += f" ({row['failure_kind']})"
+            lines.append(f"{label}\t{label_status}\t{reward}\t{verify_note}\t{network}")
         else:
             # Only the oracle agent stamps `response.metadata.oracle` (``solved`` or ``failed`` here). A row
             # without it came from another producer, such as a model run that wrote to this file, and a
@@ -143,7 +160,6 @@ def summarize_validation(
             if oracle not in ("solved", "failed"):
                 oracle = "missing" if oracle is None else f"status {oracle!r}"
                 oracle += " (not an oracle result)"
-            scored = isinstance(reward, (int, float)) and not isinstance(reward, bool) and math.isfinite(reward)
             if oracle != "solved" or not scored or reward < 1.0:
                 ok = False
             kind = row.get("failure_kind")

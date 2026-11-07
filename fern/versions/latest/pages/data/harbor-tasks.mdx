@@ -447,10 +447,19 @@ this command.
 
 ## `gym dataset validate`
 
-Runs each task's reference solution (`solution/solve.sh`) through the task's verifier with an oracle harness and
-reports the rewards. Every solution must score 1; the command exits non-zero otherwise. Tasks without a
-solution are listed as unvalidated. Validation outputs never share inputs, configs or cached results with an
-evaluation run.
+Runs two controls in separate fresh environments: the supplied solution (oracle), which must score at least 1,
+and no-op, which does nothing and must score 0. Both controls run even if one returns a failing verdict.
+The agent makes no model calls; task setup and verification still run. The command exits non-zero if either control fails.
+
+Tasks without a supplied solution are reported as oracle-unvalidated and still receive the no-op check.
+As before, an oracle selection with no supplied solutions exits non-zero. No-op rejects missing results,
+masked attempts (excluded from scoring), and verifier failures. Multi-step tasks retain their stopping rules;
+the zero requirement applies to the aggregated task reward and every executed step must finish verification.
+
+Oracle outputs default to `results/harbor/validation/<taskset>/`; no-op outputs use
+`results/harbor/validation/nop/<taskset>/`. With `--output results.jsonl`, oracle writes that file and no-op
+writes `results.nop.jsonl`. Configured output paths follow the same rule. Each mode retains separate caches
+and summaries; resuming refuses results from the other mode.
 
 ```bash
 gym dataset validate my-dataset --sandbox opensandbox

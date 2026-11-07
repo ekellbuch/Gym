@@ -1265,7 +1265,7 @@ COMMANDS = {
     ),
     "dataset validate": Command(
         target=_dataset_validate,
-        summary="Run each Harbor task's reference solution through the verifier and report the rewards.",
+        summary="Run supplied-solution and no-op validation on Harbor tasks and report both rewards.",
         flags=(
             Flag(
                 register=lambda p: p.add_argument(
