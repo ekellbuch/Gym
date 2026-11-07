@@ -1265,7 +1265,7 @@ COMMANDS = {
     ),
     "dataset validate": Command(
         target=_dataset_validate,
-        summary="Run supplied-solution or no-op validation on Harbor tasks and report the rewards.",
+        summary="Run supplied-solution and no-op validation on Harbor tasks and report both rewards.",
         flags=(
             Flag(
                 register=lambda p: p.add_argument(
@@ -1273,15 +1273,6 @@ COMMANDS = {
                     metavar="TARGET",
                     help="Harbor task folder, folder of task folders, `harbor:<dataset>[@<version>]`, or the name "
                     "of a committed entry under environments/harbor/ (e.g. terminal_bench_4) after `gym dataset pull`.",
-                )
-            ),
-            Flag(
-                register=lambda p: p.add_argument(
-                    "--agent",
-                    choices=("oracle", "nop"),
-                    default="oracle",
-                    dest="validation_agent",
-                    help="Run the supplied solution (oracle) or grade without solving (nop).",
                 )
             ),
             SANDBOX,

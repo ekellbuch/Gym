@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -1799,18 +1800,33 @@ def _resume_conflict(materialized: Path, expected: list[dict[str, object]]) -> s
 
 @exit_cleanly_on_config_error
 def validate_target(args: argparse.Namespace, overrides: list[str], *, agent: AgentSelection | None = None) -> None:
-    """Run the supplied solution or no-op control and check the task's verifier reward.
+    """Run both validation controls, or the explicitly selected evaluation agent."""
+    if agent is not None:
+        _validate_control(args, overrides, agent=agent)
+        return
+    failed = False
+    for selection in (ORACLE_AGENT, f"{ORACLE_AGENT}/nop"):
+        try:
+            _validate_control(
+                args, overrides, agent=resolve_agent(selection), separate_output=selection.endswith("/nop")
+            )
+        except SystemExit as exc:
+            if exc.code != 1:
+                raise
+            failed = True
+    if failed:
+        sys.exit(1)
 
-    ``gym eval run <target> --agent harbor_oracle`` lands here too, with its ``agent`` selection, so the oracle's
-    results never share a folder with a model's.
-    """
+
+@exit_cleanly_on_config_error
+def _validate_control(
+    args: argparse.Namespace, overrides: list[str], *, agent: AgentSelection, separate_output: bool = False
+) -> None:
     from nemo_gym.cli.main import _merge_config_paths, dispatch
     from nemo_gym.rollouts.rollout_collection import RolloutCollectionHelper
 
     # Evaluation and reference validation must never share inputs, configs, or cached results.
     try:
-        requested_mode = getattr(args, "validation_agent", "oracle")
-        agent = agent or resolve_agent(f"{ORACLE_AGENT}/nop" if requested_mode == "nop" else ORACLE_AGENT)
         mode = agent.validation_mode or "oracle"
         output_root = DEFAULT_OUTPUT_ROOT / "validation"
         if mode == "nop":
@@ -1873,6 +1889,11 @@ def validate_target(args: argparse.Namespace, overrides: list[str], *, agent: Ag
         tokens = _merge_config_paths(tokens)
         # Resolve through the same parser and cache used by dispatch, including file overlays.
         collection = _resolved_collection(tokens, prepared)
+        if separate_output:
+            output = Path(collection.output_jsonl_fpath)
+            output = output.with_name(f"{output.stem}.nop{output.suffix}")
+            tokens.append(f"++output_jsonl_fpath={shlex.quote(str(output))}")
+            collection = _resolved_collection(tokens, prepared)
         expected = RolloutCollectionHelper()._preprocess_rows_from_config(collection)
         rollouts = Path(collection.output_jsonl_fpath)
         before_dispatch = None
@@ -1930,6 +1951,8 @@ def validate_target(args: argparse.Namespace, overrides: list[str], *, agent: Ag
         # Nothing to dispatch (no selected task has a solution/): the summary still says what was selected,
         # beside the rollouts file the command line asked for (there is no run config to resolve it from).
         rollouts = _requested_output(_merge_config_paths(list(overrides)), rollouts)
+        if separate_output:
+            rollouts = rollouts.with_name(f"{rollouts.stem}.nop{rollouts.suffix}")
         _write_summary(
             rollouts,
             command="gym dataset validate",

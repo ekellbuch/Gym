@@ -447,24 +447,22 @@ this command.
 
 ## `gym dataset validate`
 
-By default, runs each task's reference solution (`solution/solve.sh`) through the task's verifier with an oracle harness and
-reports the rewards. Every solution must score 1; the command exits non-zero otherwise. Tasks without a
-solution are listed as unvalidated. Validation outputs never share inputs, configs or cached results with an
-evaluation run.
+Runs two controls in separate fresh environments: the supplied solution (oracle), which must score 1,
+and no-op, which does nothing and must score 0. Both controls run even if one returns a failing verdict.
+The agent makes no model calls; task setup and verification still run. The command exits non-zero if either control fails.
 
-Use `--agent nop` for the negative control: the agent returns no output and does not run or receive the supplied
-solution. The agent makes no model calls. Setup and verification still run; the measured task reward must be zero.
-Nonzero rewards, missing results, verification failures and masked attempts (excluded from scoring) exit non-zero.
-Tasks without supplied solutions are included.
-Multi-step tasks retain their configured step stopping rules; the zero requirement applies to the aggregated task
-reward, and any executed step with a verification failure fails validation.
+Tasks without a supplied solution are reported as oracle-unvalidated and still receive the no-op check.
+As before, an oracle selection with no supplied solutions exits non-zero. No-op rejects missing results,
+masked attempts (excluded from scoring), and verifier failures. Multi-step tasks retain their stopping rules;
+the zero requirement applies to the aggregated task reward and every executed step must finish verification.
 
-No-op outputs default to `results/harbor/validation/nop/<taskset>/`, separate from oracle results. If `--output`
-points at an existing result file, resuming refuses results from the other mode.
+Oracle outputs default to `results/harbor/validation/<taskset>/`; no-op outputs use
+`results/harbor/validation/nop/<taskset>/`. With `--output results.jsonl`, oracle writes that file and no-op
+writes `results.nop.jsonl`. Configured output paths follow the same rule. Each mode retains separate caches
+and summaries; resuming refuses results from the other mode.
 
 ```bash
 gym dataset validate my-dataset --sandbox opensandbox
-gym dataset validate my-dataset --agent nop --sandbox opensandbox
 gym dataset validate harbor:terminal-bench/terminal-bench@4.0.0 --sandbox opensandbox --only-tasks 'hello-*'
 gym dataset validate terminal_bench_4 --sandbox opensandbox      # the committed entry, after `gym dataset pull terminal_bench_4`
 ```
@@ -472,7 +470,6 @@ gym dataset validate terminal_bench_4 --sandbox opensandbox      # the committed
 | Option | Description |
 | --- | --- |
 | `TARGET` | A task folder, a folder of task folders, a `harbor:<dataset>[@<version>]` hub reference, or the name of a committed entry under `environments/harbor/` after `gym dataset pull`. |
-| `--agent oracle\|nop` | Run the supplied solution (default: `oracle`), or require reward zero without solving (`nop`). |
 | `--sandbox PROVIDER` | Sandbox provider for the task containers (for example `opensandbox`, `docker`). |
 | `--config PATH` | Extra config file to load. Repeatable. |
 | `--only-tasks PATTERNS` | Comma-separated task names or globs; only matching tasks are validated. |
